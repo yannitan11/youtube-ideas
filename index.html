@@ -92,9 +92,9 @@ a.brand-sub:hover{color:var(--accent)}
 
 .status-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
 
-.sidebar-foot{margin-top:auto;padding-top:12px;border-top:1px solid var(--line);display:flex;gap:6px}
+.sidebar-foot{margin-top:auto;padding-top:12px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:6px}
 .foot-btn{
-  flex:1;display:flex;align-items:center;justify-content:center;gap:6px;
+  flex:1 1 calc(50% - 3px);display:flex;align-items:center;justify-content:center;gap:6px;
   padding:8px;border-radius:9px;font-size:12px;font-weight:500;color:var(--ink-2);
 }
 .foot-btn:hover{background:var(--panel);color:var(--ink)}
@@ -219,6 +219,37 @@ tbody td{padding:13px 16px;vertical-align:middle}
 .gcard-thumb img.yt{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .gcard-body{padding:14px 15px 16px}
 .gcard-status{position:absolute;top:10px;left:10px}
+
+/* ============ CALENDAR ============ */
+.cal-head{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+.cal-title{font-family:'Fraunces',serif;font-size:20px;font-weight:600;letter-spacing:-.01em;min-width:150px}
+.cal-nav{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;color:var(--ink-2);background:var(--panel-2);transition:.14s}
+.cal-nav:hover{background:var(--panel);color:var(--ink);box-shadow:var(--shadow)}
+.cal-nav svg{width:16px;height:16px}
+.cal-today-btn{font-size:12px;font-weight:600;color:var(--ink-2);padding:7px 13px;border-radius:9px;background:var(--panel-2);transition:.14s}
+.cal-today-btn:hover{background:var(--panel);color:var(--ink);box-shadow:var(--shadow)}
+.cal-hint{margin-left:auto;font-size:12px;color:var(--ink-3)}
+.cal-grid{
+  display:grid;grid-template-columns:repeat(7,1fr);gap:1px;
+  background:var(--line);border:1px solid var(--line);border-radius:var(--radius);
+  overflow:hidden;box-shadow:var(--shadow);
+}
+.cal-dow{background:var(--panel-2);padding:9px 10px;font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
+.cal-day{background:var(--panel);min-height:104px;padding:8px;display:flex;flex-direction:column;gap:4px}
+.cal-day.blank{background:var(--panel-2)}
+.cal-num{font-size:12px;font-weight:600;color:var(--ink-3);width:22px;height:22px;display:grid;place-items:center;border-radius:50%}
+.cal-day.today .cal-num{background:var(--accent);color:#fff}
+.cal-chip{
+  display:block;width:100%;text-align:left;font-size:11px;font-weight:600;
+  padding:4px 7px;border-radius:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  transition:transform .12s,box-shadow .14s;
+}
+.cal-chip:hover{transform:translateY(-1px);box-shadow:var(--shadow)}
+
+/* packaging */
+.pack-grid{display:flex;flex-direction:column;gap:12px}
+.mini-label{font-size:11.5px;font-weight:500;color:var(--ink-3);margin-bottom:6px}
+textarea.pack{min-height:76px}
 
 /* empty state */
 .empty{display:grid;place-items:center;height:100%;text-align:center}
@@ -372,19 +403,32 @@ input.prop[type="date"]{min-height:41px}
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="8" height="8" rx="1.5"/><rect x="13" y="4" width="8" height="8" rx="1.5"/><rect x="3" y="14" width="8" height="6" rx="1.5"/><rect x="13" y="14" width="8" height="6" rx="1.5"/></svg>
       Gallery
     </button>
+    <button class="nav-item" data-view="calendar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="16" rx="2.5"/><path d="M8 3v4M16 3v4M3 10h18"/></svg>
+      Calendar
+    </button>
 
     <div class="nav-label">Pipeline</div>
     <div id="status-nav"></div>
 
     <div class="sidebar-foot">
-      <button class="foot-btn" id="exportBtn">
+      <button class="foot-btn" id="backupBtn" title="Download your board as a JSON backup">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
+        Backup
+      </button>
+      <button class="foot-btn" id="importBtn" title="Restore a board from a JSON backup">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 15V3m0 0L8 7m4-4l4 4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
+        Import
+      </button>
+      <button class="foot-btn" id="exportBtn" title="Export as Markdown">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3h9l5 5v13a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1z"/><path d="M14 3v6h6"/></svg>
         Export
       </button>
-      <button class="foot-btn" id="themeBtn">
+      <button class="foot-btn" id="themeBtn" title="Toggle light/dark">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg>
         Theme
       </button>
+      <input type="file" id="importFile" accept=".json,application/json" style="display:none">
     </div>
   </aside>
 
@@ -506,7 +550,7 @@ function filtered(){
     if(filterStatus && i.status!==filterStatus) return false;
     if(query){
       const q=query.toLowerCase();
-      return (i.title+' '+i.hook+' '+i.notes+' '+(i.tags||[]).join(' ')).toLowerCase().includes(q);
+      return (i.title+' '+i.hook+' '+i.notes+' '+(i.packTitles||'')+' '+(i.packThumb||'')+' '+(i.tags||[]).join(' ')).toLowerCase().includes(q);
     }
     return true;
   });
@@ -640,6 +684,47 @@ function renderGallery(){
   content.querySelectorAll('.gcard').forEach(c=>c.onclick=()=>openEditor(c.dataset.id));
 }
 
+let calBase = (()=>{const d=new Date();return new Date(d.getFullYear(),d.getMonth(),1)})();
+function dkey(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
+
+function renderCalendar(){
+  const y=calBase.getFullYear(), m=calBase.getMonth();
+  const byDate={};
+  filtered().forEach(i=>{ if(i.date){(byDate[i.date]=byDate[i.date]||[]).push(i)} });
+  const startOffset=(new Date(y,m,1).getDay()+6)%7; // Monday-first
+  const dim=new Date(y,m+1,0).getDate();
+  const todayKey=dkey(new Date());
+  const cells=Math.ceil((startOffset+dim)/7)*7;
+  const monthName=calBase.toLocaleDateString('en-US',{month:'long',year:'numeric'});
+  const dated=Object.values(byDate).flat().length;
+
+  let grid=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d=>`<div class="cal-dow">${d}</div>`).join('');
+  for(let c=0;c<cells;c++){
+    const day=c-startOffset+1;
+    if(day<1||day>dim){grid+=`<div class="cal-day blank"></div>`;continue}
+    const key=`${y}-${String(m+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    const chips=(byDate[key]||[]).map(i=>{
+      const st=S[i.status];
+      return `<button class="cal-chip" data-id="${i.id}" style="color:${st.color};background:${st.bg}" title="${esc(i.title)||'Untitled'}">${st.emoji} ${esc(i.title)||'Untitled'}</button>`;
+    }).join('');
+    grid+=`<div class="cal-day${key===todayKey?' today':''}"><span class="cal-num">${day}</span>${chips}</div>`;
+  }
+
+  content.innerHTML=`
+    <div class="cal-head">
+      <button class="cal-nav" id="calPrev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 6l-6 6 6 6"/></svg></button>
+      <div class="cal-title">${monthName}</div>
+      <button class="cal-nav" id="calNext"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 6l6 6-6 6"/></svg></button>
+      <button class="cal-today-btn" id="calToday">Today</button>
+      ${dated===0?`<span class="cal-hint">Set a target date on an idea and it'll land here</span>`:''}
+    </div>
+    <div class="cal-grid">${grid}</div>`;
+  $('#calPrev').onclick=()=>{calBase=new Date(y,m-1,1);render()};
+  $('#calNext').onclick=()=>{calBase=new Date(y,m+1,1);render()};
+  $('#calToday').onclick=()=>{const d=new Date();calBase=new Date(d.getFullYear(),d.getMonth(),1);render()};
+  content.querySelectorAll('.cal-chip').forEach(c=>c.onclick=()=>openEditor(c.dataset.id));
+}
+
 function renderEmpty(){
   content.innerHTML=`<div class="empty"><div class="empty-inner">
     <div class="empty-emoji">🎬</div>
@@ -681,12 +766,13 @@ function render(){
   statusNav(); renderStats();
   $('#cnt-board').textContent = ideas.length;
   document.querySelectorAll('.nav-item[data-view]').forEach(n=>n.classList.toggle('active',n.dataset.view===view));
-  const titles={board:'Board',table:'Table',gallery:'Gallery'};
-  const subs={board:'Drag ideas across your production pipeline',table:'Every idea, sortable at a glance',gallery:'Your ideas as a visual wall'};
+  const titles={board:'Board',table:'Table',gallery:'Gallery',calendar:'Calendar'};
+  const subs={board:'Drag ideas across your production pipeline',table:'Every idea, sortable at a glance',gallery:'Your ideas as a visual wall',calendar:'Your content schedule, month by month'};
   $('#viewTitle').textContent = filterStatus ? S[filterStatus].label : titles[view];
   $('#viewSub').textContent = subs[view];
   if(view==='board') renderBoard();
   else if(view==='table') renderTable();
+  else if(view==='calendar') renderCalendar();
   else renderGallery();
 }
 
@@ -748,6 +834,20 @@ function buildEditor(i){
     </div>`:''}
 
     <div class="field">
+      <div class="field-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="9" cy="10" r="1.2" fill="currentColor"/><circle cx="15" cy="10" r="1.2" fill="currentColor"/><path d="M8.5 15a4.5 4.5 0 007 0"/></svg>Packaging</div>
+      <div class="pack-grid">
+        <div>
+          <div class="mini-label">Title ideas — one per line</div>
+          <textarea class="notes pack" id="packTitles" placeholder="Write 2–3 title options and pick the strongest later…" autocapitalize="off" autocorrect="off" spellcheck="false">${esc(i.packTitles||'')}</textarea>
+        </div>
+        <div>
+          <div class="mini-label">Thumbnail concept</div>
+          <textarea class="notes pack" id="packThumb" placeholder="What's in the frame? The face, the text, the prop…" autocapitalize="off" autocorrect="off" spellcheck="false">${esc(i.packThumb||'')}</textarea>
+        </div>
+      </div>
+    </div>
+
+    <div class="field">
       <div class="field-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.6 13.4L12 22l-8-8V4h10l6.6 6.6a2 2 0 010 2.8z"/><circle cx="7.5" cy="7.5" r="1.5" fill="currentColor"/></svg>Tags</div>
       <div class="tags-edit" id="tagsEdit"></div>
     </div>
@@ -784,6 +884,9 @@ function buildEditor(i){
   growNotes(ni);
   // target date
   $('#dateInput').onchange=e=>{i.date=e.target.value;save();buildEditor(i);render()};
+  // packaging
+  $('#packTitles').oninput=e=>{i.packTitles=e.target.value;queueSave()};
+  $('#packThumb').oninput=e=>{i.packThumb=e.target.value;queueSave()};
   buildTags(i); buildChecklist(i);
 }
 
@@ -866,12 +969,46 @@ $('#dupBtn').onclick=()=>{ const i=ideas.find(x=>x.id===openId); if(i){const c={
 $('#exportBtn').onclick=()=>{
   const md = '# YouTube Ideas\n\n'+ideas.map(i=>{
     const st=S[i.status].label;const done=i.checklist.filter(c=>c.done).length;
-    return `## ${stEmoji(i)} ${i.title||'Untitled'}\n- **Status:** ${st} · **Format:** ${(FORMATS[i.format]||{}).label}\n- **Tags:** ${(i.tags||[]).join(', ')||'—'}\n- **Hook:** ${i.hook||'—'}\n${i.date?`- **Target date:** ${i.date}\n`:''}${i.video?`- **Video:** ${i.video}\n`:''}- **Progress:** ${done}/${i.checklist.length}\n${i.notes?'\n'+i.notes+'\n':''}`;
+    return `## ${stEmoji(i)} ${i.title||'Untitled'}\n- **Status:** ${st} · **Format:** ${(FORMATS[i.format]||{}).label}\n- **Tags:** ${(i.tags||[]).join(', ')||'—'}\n- **Hook:** ${i.hook||'—'}\n${i.date?`- **Target date:** ${i.date}\n`:''}${i.video?`- **Video:** ${i.video}\n`:''}- **Progress:** ${done}/${i.checklist.length}\n${i.packTitles?`- **Title ideas:** ${i.packTitles.split('\n').filter(Boolean).join(' / ')}\n`:''}${i.packThumb?`- **Thumbnail:** ${i.packThumb}\n`:''}${i.notes?'\n'+i.notes+'\n':''}`;
   }).join('\n---\n\n');
   const blob=new Blob([md],{type:'text/markdown'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='youtube-ideas.md';a.click();
   toast('Exported as Markdown ✓');
 };
+// JSON backup / restore
+$('#backupBtn').onclick=()=>{
+  const blob=new Blob([JSON.stringify(ideas,null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download=`youtube-ideas-backup-${dkey(new Date())}.json`;a.click();
+  toast('Backup downloaded ✓');
+};
+$('#importBtn').onclick=()=>$('#importFile').click();
+$('#importFile').onchange=e=>{
+  const f=e.target.files[0]; e.target.value=''; if(!f) return;
+  const reader=new FileReader();
+  reader.onload=()=>{
+    try{
+      const d=JSON.parse(reader.result);
+      if(!Array.isArray(d)) throw new Error('not an array');
+      const remap={research:'idea',film:'video'};
+      const clean=d.filter(x=>x&&typeof x==='object').map(x=>({
+        id:String(x.id||uid()), title:String(x.title||''), hook:String(x.hook||''),
+        status:S[x.status]?x.status:(remap[x.status]||'idea'),
+        format:FORMATS[x.format]?x.format:'long',
+        tags:Array.isArray(x.tags)?x.tags.map(String):[],
+        notes:String(x.notes||''), date:String(x.date||''), video:String(x.video||''),
+        packTitles:String(x.packTitles||''), packThumb:String(x.packThumb||''),
+        checklist:Array.isArray(x.checklist)&&x.checklist.length?x.checklist.map(c=>({t:String(c.t||''),done:!!c.done})):DEFAULT_CHECK.map(t=>({t,done:false})),
+        created:Number(x.created)||Date.now(),
+      }));
+      if(!clean.length) throw new Error('no ideas in file');
+      if(!confirm(`Replace your current board (${ideas.length} ideas) with this backup (${clean.length} ideas)?`)) return;
+      ideas=clean; save(); render(); toast(`Imported ${clean.length} ideas ✓`);
+    }catch(err){ toast("Couldn't read that file — is it an Idea Studio backup?"); }
+  };
+  reader.readAsText(f);
+};
+
 // theme
 function applyTheme(t){document.documentElement.setAttribute('data-theme',t);localStorage.setItem('yt-theme',t)}
 $('#themeBtn').onclick=()=>{const cur=document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark';applyTheme(cur)};
