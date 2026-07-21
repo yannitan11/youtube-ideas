@@ -441,16 +441,7 @@ const EMOJIS = ['🎬','💡','🔥','🎥','📹','✨','🎯','📈','🧠','�
 
 const DEFAULT_CHECK = ['Hook / cold open','Outline the beats','Write script','Film footage','Edit + color','Thumbnail + title','Publish & pin comment'];
 
-const seed = () => ([
-  {id:uid(),title:'I tried every ramen shop in one street',emoji:'🍜',hook:'A one-day food crawl with a running "which bowl is worth the calories" tally — payoff is a surprise hole-in-the-wall winner.',status:'edit',format:'long',tags:['food','challenge'],notes:'Shoot POV + tripod b-roll. Need a scoring graphic overlay for each bowl.\n\nBudget: ~$60.',checklist:mkCheck([1,1,1,1,0,0,0]),created:Date.now()-8.6e8},
-  {id:uid(),title:'Why your desk setup feels "off"',emoji:'💻',hook:'3 invisible principles (line of sight, cable gravity, one hero object) that make any setup look intentional.',status:'script',format:'long',tags:['setup','design'],notes:'Reference: minimalist-desk creators. Include a before/after of my own desk.',checklist:mkCheck([1,1,0,0,0,0,0]),created:Date.now()-5.2e8},
-  {id:uid(),title:'POV: you have 60 seconds to plan a trip',emoji:'🌍',hook:'Rapid-fire itinerary build for a city, on a timer, viewers vote next stop.',status:'idea',format:'short',tags:['travel'],notes:'Could be a repeatable series if it lands.',checklist:mkCheck([0,0,0,0,0,0,0]),created:Date.now()-2.1e8},
-  {id:uid(),title:'The 5am routine I actually kept',emoji:'☀️',hook:'Honest 30-day log — what stuck, what I quietly dropped, no toxic productivity.',status:'research',format:'long',tags:['lifestyle','habits'],notes:'Pull screen-time + sleep data as receipts.',checklist:mkCheck([1,0,0,0,0,0,0]),created:Date.now()-1.1e8},
-  {id:uid(),title:'I coded a game in a language I don\'t know',emoji:'🕹️',hook:'24-hour learn-and-ship challenge, chaos guaranteed.',status:'published',format:'long',tags:['coding','challenge'],notes:'Did 340k views. Sequel idea in comments.',checklist:mkCheck([1,1,1,1,1,1,1]),created:Date.now()-15e8},
-]);
-
 function uid(){return Math.random().toString(36).slice(2,9)}
-function mkCheck(arr){return DEFAULT_CHECK.map((t,i)=>({t,done:!!arr[i]}))}
 
 let ideas = load();
 let view = 'board';
@@ -460,10 +451,10 @@ let openId = null;
 let saveTimer = null;
 
 function load(){
-  try{ const d = JSON.parse(localStorage.getItem('yt-ideas')); if(Array.isArray(d)) return d; }catch(e){}
-  return seed();
+  try{ const d = JSON.parse(localStorage.getItem('yt-ideas-v2')); if(Array.isArray(d)) return d; }catch(e){}
+  return [];
 }
-function save(){ localStorage.setItem('yt-ideas', JSON.stringify(ideas)); }
+function save(){ localStorage.setItem('yt-ideas-v2', JSON.stringify(ideas)); }
 
 /* ================= RENDER ================= */
 const $ = s => document.querySelector(s);
