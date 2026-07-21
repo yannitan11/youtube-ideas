@@ -424,9 +424,8 @@ textarea.hook{min-height:70px}
 /* ================= DATA ================= */
 const STATUSES = [
   {id:'idea',      label:'Spark',     color:'#8b7fd6', bg:'#efecfb'},
-  {id:'research',  label:'Research',  color:'#3d9bd6', bg:'#e4f2fb'},
   {id:'script',    label:'Scripting', color:'#e0a52b', bg:'#fbf1d9'},
-  {id:'film',      label:'Filming',   color:'#e0503a', bg:'#fbe6e1'},
+  {id:'video',     label:'Videoing',  color:'#e0503a', bg:'#fbe6e1'},
   {id:'edit',      label:'Editing',   color:'#d0568f', bg:'#fbe4ef'},
   {id:'published', label:'Published', color:'#2ea36b', bg:'#e0f5eb'},
 ];
@@ -451,7 +450,15 @@ let openId = null;
 let saveTimer = null;
 
 function load(){
-  try{ const d = JSON.parse(localStorage.getItem('yt-ideas-v2')); if(Array.isArray(d)) return d; }catch(e){}
+  try{
+    const d = JSON.parse(localStorage.getItem('yt-ideas-v2'));
+    if(Array.isArray(d)){
+      // map any statuses from removed pipeline stages onto current ones
+      const remap = {research:'idea', film:'video'};
+      d.forEach(i=>{ if(!S[i.status]) i.status = remap[i.status] || 'idea'; });
+      return d;
+    }
+  }catch(e){}
   return [];
 }
 function save(){ localStorage.setItem('yt-ideas-v2', JSON.stringify(ideas)); }
