@@ -366,18 +366,43 @@ input.prop[type="date"]{min-height:41px}
 .scrollhide::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:20px;border:2px solid transparent;background-clip:padding-box}
 .scrollhide::-webkit-scrollbar-thumb:hover{background:var(--ink-3)}
 
+/* sidebar scrim (mobile) */
+.side-scrim{position:fixed;inset:0;background:rgba(20,16,12,.34);backdrop-filter:blur(2px);opacity:0;pointer-events:none;transition:opacity .28s;z-index:45}
+body.nav-open .side-scrim{opacity:1;pointer-events:auto}
+
+.cal-scroll{overflow-x:auto}
+
 @media (max-width:820px){
-  .sidebar{position:fixed;z-index:45;height:100vh;box-shadow:var(--shadow-lg)}
-  .stats{flex-wrap:wrap}
-  .stat{min-width:calc(50% - 7px)}
-  .search input{width:150px}
-  .search input:focus{width:170px}
+  .sidebar{
+    position:fixed;z-index:46;height:100dvh;box-shadow:var(--shadow-lg);
+    margin-left:0;transform:translateX(0);
+    transition:transform .28s cubic-bezier(.4,0,.2,1);
+  }
+  .sidebar.collapsed{margin-left:0;transform:translateX(-105%);box-shadow:none}
+  .topbar{padding:12px 16px;gap:8px}
+  .view-title{font-size:20px}
   .view-sub{display:none}
+  .search{flex:1;min-width:0}
+  .search input{width:100%;min-width:0}
+  .search input:focus{width:100%}
+  .btn-primary{padding:9px 12px;flex-shrink:0}
+  .btn-primary span{display:none}
+  .stats{flex-wrap:wrap;padding:14px 16px 0;gap:10px}
+  .stat{min-width:calc(50% - 5px);padding:12px 14px}
+  .stat-val{font-size:23px}
+  .content{padding:16px 16px 32px}
+  .board{scroll-snap-type:x proximity}
+  .column{width:min(290px,82vw);scroll-snap-align:start}
+  .cal-grid{min-width:600px}
+  .cal-hint{display:none}
+  .panel-body{padding:20px 18px 34px}
+  .title-input{font-size:23px}
 }
 </style>
 </head>
 <body>
 <div class="app">
+  <div class="side-scrim" id="sideScrim"></div>
   <!-- SIDEBAR -->
   <aside class="sidebar" id="sidebar">
     <div class="brand">
@@ -448,7 +473,7 @@ input.prop[type="date"]{min-height:41px}
       </div>
       <button class="btn-primary" id="newBtn">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg>
-        New idea
+        <span>New idea</span>
       </button>
     </div>
 
@@ -533,14 +558,14 @@ function statusNav(){
   const all = document.createElement('button');
   all.className='nav-item'+(filterStatus===null?' active':'');
   all.innerHTML = `<span class="status-dot" style="background:linear-gradient(135deg,#ff4d2e,#ff8a3d)"></span> All ideas <span class="count">${ideas.length}</span>`;
-  all.onclick=()=>{filterStatus=null;render()};
+  all.onclick=()=>{filterStatus=null;render();closeNavMobile()};
   wrap.appendChild(all);
   STATUSES.forEach(s=>{
     const n = ideas.filter(i=>i.status===s.id).length;
     const b = document.createElement('button');
     b.className='nav-item'+(filterStatus===s.id?' active':'');
     b.innerHTML=`<span class="status-dot" style="background:${s.color}"></span> ${s.label} <span class="count">${n}</span>`;
-    b.onclick=()=>{filterStatus=s.id;render()};
+    b.onclick=()=>{filterStatus=s.id;render();closeNavMobile()};
     wrap.appendChild(b);
   });
 }
@@ -718,7 +743,7 @@ function renderCalendar(){
       <button class="cal-today-btn" id="calToday">Today</button>
       ${dated===0?`<span class="cal-hint">Set a target date on an idea and it'll land here</span>`:''}
     </div>
-    <div class="cal-grid">${grid}</div>`;
+    <div class="cal-scroll scrollhide"><div class="cal-grid">${grid}</div></div>`;
   $('#calPrev').onclick=()=>{calBase=new Date(y,m-1,1);render()};
   $('#calNext').onclick=()=>{calBase=new Date(y,m+1,1);render()};
   $('#calToday').onclick=()=>{const d=new Date();calBase=new Date(d.getFullYear(),d.getMonth(),1);render()};
@@ -958,11 +983,25 @@ function growNotes(el){el.style.height='auto';el.style.height=Math.max(280,el.sc
 function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1800)}
 
 /* ================= EVENTS ================= */
-document.querySelectorAll('.nav-item[data-view]').forEach(n=>n.onclick=()=>{view=n.dataset.view;render()});
+// mobile nav: sidebar starts collapsed, slides in over a scrim, closes on pick
+const mqMobile=matchMedia('(max-width:820px)');
+function setNav(open){
+  $('#sidebar').classList.toggle('collapsed',!open);
+  document.body.classList.toggle('nav-open',open&&mqMobile.matches);
+}
+function closeNavMobile(){ if(mqMobile.matches) setNav(false); }
+if(mqMobile.matches) setNav(false);
+mqMobile.addEventListener('change',e=>{
+  if(e.matches) setNav(false);
+  else{ $('#sidebar').classList.remove('collapsed'); document.body.classList.remove('nav-open'); }
+});
+
+document.querySelectorAll('.nav-item[data-view]').forEach(n=>n.onclick=()=>{view=n.dataset.view;render();closeNavMobile()});
 $('#newBtn').onclick=()=>newIdea();
 $('#closePanel').onclick=closeEditor;
 $('#scrim').onclick=closeEditor;
-$('#menuBtn').onclick=()=>$('#sidebar').classList.toggle('collapsed');
+$('#menuBtn').onclick=()=>setNav($('#sidebar').classList.contains('collapsed'));
+$('#sideScrim').onclick=()=>setNav(false);
 $('#searchInput').oninput=e=>{query=e.target.value;render()};
 $('#delBtn').onclick=()=>{ if(openId && confirm('Delete this idea?')){ideas=ideas.filter(i=>i.id!==openId);save();closeEditor();render();toast('Idea deleted')} };
 $('#dupBtn').onclick=()=>{ const i=ideas.find(x=>x.id===openId); if(i){const c={...i,id:uid(),title:i.title+' (copy)',created:Date.now(),tags:[...(i.tags||[])],checklist:i.checklist.map(x=>({...x}))};ideas.unshift(c);save();render();openEditor(c.id);toast('Duplicated')} };
