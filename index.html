@@ -383,7 +383,7 @@ textarea.hook{min-height:70px}
       </div>
       <div class="search">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
-        <input id="searchInput" placeholder="Search ideas…" />
+        <input id="searchInput" placeholder="Search ideas…" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" />
       </div>
       <button class="btn-primary" id="newBtn">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg>
@@ -665,12 +665,12 @@ function buildEditor(i){
     <div style="display:flex;gap:14px;align-items:flex-start;position:relative">
       <button class="emoji-btn" id="emojiBtn">${i.emoji||'💡'}</button>
       <div class="emoji-pop" id="emojiPop">${EMOJIS.map(e=>`<button data-e="${e}">${e}</button>`).join('')}</div>
-      <textarea class="title-input" id="titleInput" rows="1" placeholder="Untitled idea">${esc(i.title)}</textarea>
+      <textarea class="title-input" id="titleInput" rows="1" placeholder="Untitled idea" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false">${esc(i.title)}</textarea>
     </div>
 
     <div class="field">
       <div class="field-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>The hook</div>
-      <textarea class="notes hook" id="hookInput" placeholder="What makes someone stop scrolling? The angle, the promise, the tension…">${esc(i.hook)}</textarea>
+      <textarea class="notes hook" id="hookInput" placeholder="What makes someone stop scrolling? The angle, the promise, the tension…" autocapitalize="off" autocorrect="off" spellcheck="false">${esc(i.hook)}</textarea>
     </div>
 
     <div class="field">
@@ -703,7 +703,7 @@ function buildEditor(i){
 
     <div class="field">
       <div class="field-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Notes & script beats</div>
-      <textarea class="notes" id="notesInput" placeholder="Outline, references, gear, budget, thumbnail concept…">${esc(i.notes)}</textarea>
+      <textarea class="notes" id="notesInput" placeholder="Outline, references, gear, budget, thumbnail concept…" autocapitalize="off" autocorrect="off" spellcheck="false">${esc(i.notes)}</textarea>
     </div>
   `;
   // title
@@ -737,6 +737,7 @@ function buildTags(i){
   });
   const inp=document.createElement('input');
   inp.className='tag-input';inp.placeholder='+ add tag';
+  inp.autocapitalize='off';inp.autocomplete='off';inp.spellcheck=false;inp.setAttribute('autocorrect','off');
   inp.onkeydown=e=>{
     if(e.key==='Enter'&&inp.value.trim()){
       i.tags=i.tags||[]; const v=inp.value.trim().toLowerCase();
