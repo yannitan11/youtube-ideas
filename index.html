@@ -259,7 +259,7 @@ select.prop:focus,input.prop:focus{border-color:var(--accent)}
 
 textarea.notes{
   width:100%;background:var(--panel-2);border:1px solid var(--line);border-radius:12px;
-  padding:14px;font-size:14px;line-height:1.6;outline:none;resize:vertical;min-height:120px;
+  padding:14px;font-size:14px;line-height:1.6;outline:none;resize:vertical;min-height:280px;
   transition:border-color .15s;
 }
 textarea.notes:focus{border-color:var(--accent)}
@@ -716,7 +716,9 @@ function buildEditor(i){
   $('#statusSel').onchange=e=>{i.status=e.target.value;if(i.status==='published')i.checklist.forEach(c=>c.done=true);save();buildEditor(i);render()};
   $('#formatSel').onchange=e=>{i.format=e.target.value;queueSave()};
   // notes
-  $('#notesInput').oninput=e=>{i.notes=e.target.value;queueSave()};
+  const ni=$('#notesInput');
+  ni.oninput=e=>{i.notes=e.target.value;growNotes(ni);queueSave()};
+  growNotes(ni);
   // emoji
   const pop=$('#emojiPop');
   $('#emojiBtn').onclick=e=>{e.stopPropagation();pop.classList.toggle('show')};
@@ -778,6 +780,7 @@ function showSaved(){
 }
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 function autoGrow(el){el.style.height='auto';el.style.height=el.scrollHeight+'px'}
+function growNotes(el){el.style.height='auto';el.style.height=Math.max(280,el.scrollHeight+4)+'px'}
 function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1800)}
 
 /* ================= EVENTS ================= */
