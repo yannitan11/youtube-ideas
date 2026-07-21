@@ -1117,11 +1117,20 @@ async function gh(path,opts={}){
     ...opts,
     headers:{'Authorization':'Bearer '+SY.token,'Accept':'application/vnd.github+json',...(opts.headers||{})},
   });
-  if(!res.ok) throw new Error('GitHub '+res.status);
+  if(!res.ok){ const e=new Error('GitHub '+res.status); e.status=res.status; throw e; }
   return res.json();
 }
 
 function syncDoc(){ return {v:1, savedAt:Date.now(), ideas, deleted:deletedMap}; }
+
+function describeSyncError(e){
+  if(!e) return 'Unknown error';
+  if(e.status===401) return 'Token invalid or revoked — create a new one and reconnect';
+  if(e.status===403) return "Token can't access gists — use a CLASSIC token with the gist scope (not fine-grained)";
+  if(e.status===404) return 'Sync gist not found';
+  if(e.status) return 'GitHub error '+e.status+' — will retry';
+  return 'Network problem — will retry automatically';
+}
 
 async function findOrCreateGist(){
   const gists=await gh('/gists?per_page=100');
@@ -1156,8 +1165,23 @@ async function syncNow(){
     await gh('/gists/'+SY.gist,{method:'PATCH',body:JSON.stringify({
       files:{[SYNC_FILE]:{content:JSON.stringify(syncDoc())}},
     })});
-    SY.last=Date.now(); setSyncUI('ok');
-  }catch(e){ setSyncUI('error'); }
+    SY.last=Date.now(); SY.lastError=null; setSyncUI('ok');
+  }catch(e){
+    SY.lastError=e;
+    if(e.status===404){
+      // gist was deleted on github.com — make a fresh one and retry once
+      try{
+        SY.gist=await findOrCreateGist();
+        localStorage.setItem('yt-sync-gist',SY.gist);
+        await gh('/gists/'+SY.gist,{method:'PATCH',body:JSON.stringify({
+          files:{[SYNC_FILE]:{content:JSON.stringify(syncDoc())}},
+        })});
+        SY.last=Date.now(); SY.lastError=null; setSyncUI('ok');
+        SY.busy=false; return;
+      }catch(e2){ SY.lastError=e2; }
+    }
+    setSyncUI('error');
+  }
   SY.busy=false;
 }
 
@@ -1180,7 +1204,7 @@ function setSyncUI(state){
   const [c,t]=map[state]||map.off;
   dot.style.background=c; label.textContent=t;
   const st=$('#syncModalStatus');
-  if(st) st.textContent = state==='off' ? 'Not connected' : (state==='error' ? 'Connection problem — check the token' : 'Connected · gist '+SY.gist.slice(0,8)+'…');
+  if(st) st.textContent = state==='off' ? 'Not connected' : (state==='error' ? describeSyncError(SY.lastError) : 'Connected · gist '+SY.gist.slice(0,8)+'…');
 }
 
 async function connectSync(token){
@@ -1193,7 +1217,7 @@ async function connectSync(token){
     localStorage.setItem('yt-sync-gist',SY.gist);
     await syncNow();
     if(SY.state==='ok'){ toast('Sync connected ✓'); closeSyncModal(); }
-  }catch(e){ SY.gist=''; setSyncUI('error'); toast("Couldn't connect — is the token valid with gist scope?"); }
+  }catch(e){ SY.gist=''; SY.lastError=e; setSyncUI('error'); toast(describeSyncError(e)); }
 }
 function disconnectSync(){
   SY.token='';SY.gist='';
@@ -1203,8 +1227,10 @@ function disconnectSync(){
 
 function openSyncModal(){
   $('#syncTokenInput').value='';
-  $('#syncConnected').style.display=SY.token?'block':'none';
-  $('#syncSetup').style.display=SY.token?'none':'block';
+  const badToken=SY.state==='error'&&SY.lastError&&(SY.lastError.status===401||SY.lastError.status===403);
+  const connected=SY.token&&!badToken;
+  $('#syncConnected').style.display=connected?'block':'none';
+  $('#syncSetup').style.display=connected?'none':'block';
   setSyncUI(SY.state);
   $('#syncScrim').classList.add('show');$('#syncModal').classList.add('show');
 }
