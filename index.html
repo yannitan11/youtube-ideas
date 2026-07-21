@@ -74,7 +74,8 @@ input,textarea,select{font-family:inherit;color:inherit}
 }
 .brand-mark svg{width:18px;height:18px}
 .brand-name{font-family:'Fraunces',serif;font-weight:600;font-size:16px;letter-spacing:-.01em;line-height:1.1}
-.brand-sub{font-size:11px;color:var(--ink-3);font-weight:500}
+.brand-sub{display:block;font-size:11px;color:var(--ink-3);font-weight:500;text-decoration:none;transition:color .14s}
+a.brand-sub:hover{color:var(--accent)}
 
 .nav-label{font-size:10.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);padding:14px 10px 7px}
 .nav-item{
@@ -338,7 +339,7 @@ textarea.hook{min-height:70px}
       </div>
       <div>
         <div class="brand-name">Idea Studio</div>
-        <div class="brand-sub">YouTube pipeline</div>
+        <a class="brand-sub" href="https://youtube.com/@yannifilms" target="_blank" rel="noopener">@yannifilms</a>
       </div>
     </div>
 
