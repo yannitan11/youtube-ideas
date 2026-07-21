@@ -312,13 +312,15 @@ textarea.hook{min-height:70px}
 .saved-hint.show{opacity:1}
 .saved-hint svg{width:14px;height:14px;color:#2ea36b}
 
-/* emoji picker */
-.emoji-btn{width:44px;height:44px;border-radius:11px;background:var(--panel-2);border:1px solid var(--line);font-size:24px;display:grid;place-items:center;transition:.14s;flex-shrink:0}
-.emoji-btn:hover{border-color:var(--accent)}
-.emoji-pop{position:absolute;background:var(--panel);border:1px solid var(--line-2);border-radius:12px;box-shadow:var(--shadow-lg);padding:8px;display:none;grid-template-columns:repeat(8,1fr);gap:2px;z-index:60;width:290px}
-.emoji-pop.show{display:grid}
-.emoji-pop button{font-size:20px;width:32px;height:32px;border-radius:8px;display:grid;place-items:center}
-.emoji-pop button:hover{background:var(--panel-2)}
+/* status icon */
+.emoji-btn{width:44px;height:44px;border-radius:11px;background:var(--panel-2);border:1px solid var(--line);font-size:24px;display:grid;place-items:center;flex-shrink:0}
+
+/* target date */
+.due,.prog{display:inline-flex;align-items:center;gap:5px}
+.due.soon{color:var(--accent);font-weight:600}
+.due.overdue{color:#e0503a;font-weight:600}
+.due svg{width:12px;height:12px}
+input.prop[type="date"]{min-height:41px}
 
 /* toast */
 .toast{
@@ -438,11 +440,11 @@ textarea.hook{min-height:70px}
 <script>
 /* ================= DATA ================= */
 const STATUSES = [
-  {id:'idea',      label:'Spark',     color:'#8b7fd6', bg:'#efecfb'},
-  {id:'script',    label:'Scripting', color:'#e0a52b', bg:'#fbf1d9'},
-  {id:'video',     label:'Videoing',  color:'#e0503a', bg:'#fbe6e1'},
-  {id:'edit',      label:'Editing',   color:'#d0568f', bg:'#fbe4ef'},
-  {id:'published', label:'Published', color:'#2ea36b', bg:'#e0f5eb'},
+  {id:'idea',      label:'Spark',     emoji:'💡', color:'#8b7fd6', bg:'#efecfb'},
+  {id:'script',    label:'Scripting', emoji:'✍️', color:'#e0a52b', bg:'#fbf1d9'},
+  {id:'video',     label:'Videoing',  emoji:'🎥', color:'#e0503a', bg:'#fbe6e1'},
+  {id:'edit',      label:'Editing',   emoji:'🎞️', color:'#d0568f', bg:'#fbe4ef'},
+  {id:'published', label:'Published', emoji:'🚀', color:'#2ea36b', bg:'#e0f5eb'},
 ];
 const S = Object.fromEntries(STATUSES.map(s=>[s.id,s]));
 const FORMATS = {
@@ -451,7 +453,7 @@ const FORMATS = {
 };
 const TAG_COLORS = ['#8b7fd6','#3d9bd6','#e0a52b','#e0503a','#d0568f','#2ea36b','#5b8a72','#c77c4a'];
 const tagColor = t => TAG_COLORS[[...t].reduce((a,c)=>a+c.charCodeAt(0),0)%TAG_COLORS.length];
-const EMOJIS = ['🎬','💡','🔥','🎥','📹','✨','🎯','📈','🧠','🎨','🕹️','🍜','☕','🌍','💻','📱','🎧','🏃','🐱','🌸','⚡','🎸','📚','🛠️','🚀','💬','🎤','🧪','🌙','🍿','🪩','🎮'];
+const stEmoji = i => (S[i.status]||S.idea).emoji;
 
 const DEFAULT_CHECK = ['Lock the idea + hook','Write the script','Shoot the video','Edit the video','Thumbnail + title','Publish & pin comment'];
 
@@ -537,6 +539,26 @@ function ytId(u){
 }
 function ytThumb(u){const id=ytId(u);return id?`https://i.ytimg.com/vi/${id}/hqdefault.jpg`:null}
 
+function fmtDate(d){
+  if(!d) return '';
+  const dt=new Date(d+'T00:00');
+  if(isNaN(dt)) return '';
+  const opts={month:'short',day:'numeric'};
+  if(dt.getFullYear()!==new Date().getFullYear()) opts.year='numeric';
+  return dt.toLocaleDateString('en-US',opts);
+}
+function dueClass(i){
+  if(!i.date||i.status==='published') return '';
+  const today=new Date(); today.setHours(0,0,0,0);
+  const days=Math.round((new Date(i.date+'T00:00')-today)/864e5);
+  if(isNaN(days)) return '';
+  return days<0?'overdue':(days<=3?'soon':'');
+}
+function dueHTML(i){
+  if(!i.date) return '';
+  return `<span class="due ${dueClass(i)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2.5"/><path d="M8 3v4M16 3v4M3 10h18"/></svg>${fmtDate(i.date)}</span>`;
+}
+
 function cardHTML(i){
   const st=S[i.status], fmt=FORMATS[i.format]||FORMATS.long;
   const tags=(i.tags||[]).slice(0,2).map(t=>`<span class="tag" style="color:${tagColor(t)};background:${tagColor(t)}22">${esc(t)}</span>`).join('');
@@ -544,13 +566,13 @@ function cardHTML(i){
   const thumb = i.status==='published' ? ytThumb(i.video) : null;
   return `<div class="card" data-id="${i.id}" draggable="true">
     ${thumb?`<img class="card-thumb" src="${thumb}" alt="" loading="lazy" draggable="false">`:''}
-    <div class="card-title">${i.emoji||'💡'} ${esc(i.title)||'Untitled'}</div>
+    <div class="card-title">${stEmoji(i)} ${esc(i.title)||'Untitled'}</div>
     ${i.hook?`<div class="card-hook">${esc(i.hook)}</div>`:''}
     <div class="card-meta">
       <span class="format-pill" style="color:${fmt.color};background:${fmt.bg}"><svg viewBox="0 0 24 24" fill="currentColor"><path d="${fmt.icon}"/></svg>${fmt.label}</span>
       ${tags}
     </div>
-    ${prog>0?`<div class="card-foot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>${prog}% ready</div>`:''}
+    ${(i.date||prog>0)?`<div class="card-foot">${dueHTML(i)}${prog>0?`<span class="prog"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>${prog}% ready</span>`:''}</div>`:''}
   </div>`;
 }
 
@@ -559,7 +581,8 @@ function renderBoard(){
   content.innerHTML = `<div class="board scrollhide" id="board"></div>`;
   const board = $('#board');
   STATUSES.forEach(s=>{
-    const items = list.filter(i=>i.status===s.id);
+    const items = list.filter(i=>i.status===s.id)
+      .sort((a,b)=>(a.date||'~').localeCompare(b.date||'~')||b.created-a.created);
     const col = document.createElement('div');
     col.className='column'; col.dataset.status=s.id;
     col.innerHTML = `<div class="col-head">
@@ -578,15 +601,17 @@ function renderBoard(){
 function renderTable(){
   const list = filtered();
   if(!list.length){ return renderEmpty(); }
+  const sorted=[...list].sort((a,b)=>(a.date||'~').localeCompare(b.date||'~')||b.created-a.created);
   content.innerHTML = `<div class="tablewrap"><table><thead><tr>
-      <th style="width:42%">Idea</th><th>Status</th><th>Format</th><th>Tags</th><th>Progress</th>
-    </tr></thead><tbody>${list.map(i=>{
+      <th style="width:38%">Idea</th><th>Status</th><th>Format</th><th>Target</th><th>Tags</th><th>Progress</th>
+    </tr></thead><tbody>${sorted.map(i=>{
       const st=S[i.status], fmt=FORMATS[i.format]||FORMATS.long, prog=progressOf(i);
       const tags=(i.tags||[]).map(t=>`<span class="tag" style="color:${tagColor(t)};background:${tagColor(t)}22">${esc(t)}</span>`).join(' ')||'<span style="color:var(--ink-3)">—</span>';
       return `<tr data-id="${i.id}">
-        <td><div class="t-title">${i.emoji||'💡'} ${esc(i.title)||'Untitled'}</div>${i.hook?`<div class="t-hook">${esc(i.hook)}</div>`:''}</td>
+        <td><div class="t-title">${stEmoji(i)} ${esc(i.title)||'Untitled'}</div>${i.hook?`<div class="t-hook">${esc(i.hook)}</div>`:''}</td>
         <td><span class="status-chip" style="color:${st.color};background:${st.bg}"><span class="status-dot" style="background:${st.color}"></span>${st.label}</span></td>
         <td><span class="format-pill" style="color:${fmt.color};background:${fmt.bg}"><svg viewBox="0 0 24 24" fill="currentColor"><path d="${fmt.icon}"/></svg>${fmt.label}</span></td>
+        <td>${i.date?dueHTML(i):'<span style="color:var(--ink-3)">—</span>'}</td>
         <td>${tags}</td>
         <td><div style="display:flex;align-items:center;gap:8px"><div class="progress-track" style="width:70px;margin:0"><div class="progress-fill" style="width:${prog}%"></div></div><span style="font-size:12px;color:var(--ink-3);font-weight:600">${prog}%</span></div></td>
       </tr>`;
@@ -602,7 +627,7 @@ function renderGallery(){
     const tags=(i.tags||[]).slice(0,3).map(t=>`<span class="tag" style="color:${tagColor(t)};background:${tagColor(t)}22">${esc(t)}</span>`).join('');
     return `<div class="gcard" data-id="${i.id}">
       <div class="gcard-thumb" style="background:${st.bg}">
-        ${(i.status==='published'&&ytThumb(i.video))?`<img class="yt" src="${ytThumb(i.video)}" alt="" loading="lazy">`:`<span class="emoji">${i.emoji||'💡'}</span>`}
+        ${(i.status==='published'&&ytThumb(i.video))?`<img class="yt" src="${ytThumb(i.video)}" alt="" loading="lazy">`:`<span class="emoji">${stEmoji(i)}</span>`}
         <span class="gcard-status status-chip" style="color:${st.color};background:${st.color}22"><span class="status-dot" style="background:${st.color}"></span>${st.label}</span>
       </div>
       <div class="gcard-body">
@@ -685,9 +710,8 @@ function buildEditor(i){
   $('#statusChipHead').innerHTML=`<span class="status-chip" style="color:${st.color};background:${st.bg}"><span class="status-dot" style="background:${st.color}"></span>${st.label}</span>`;
   const prog=progressOf(i);
   $('#panelBody').innerHTML = `
-    <div style="display:flex;gap:14px;align-items:flex-start;position:relative">
-      <button class="emoji-btn" id="emojiBtn">${i.emoji||'💡'}</button>
-      <div class="emoji-pop" id="emojiPop">${EMOJIS.map(e=>`<button data-e="${e}">${e}</button>`).join('')}</div>
+    <div style="display:flex;gap:14px;align-items:flex-start">
+      <div class="emoji-btn" title="${st.label}">${st.emoji}</div>
       <textarea class="title-input" id="titleInput" rows="1" placeholder="Untitled idea" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false">${esc(i.title)}</textarea>
     </div>
 
@@ -710,6 +734,10 @@ function buildEditor(i){
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
           </div>
         </div>
+        <div><div class="field-label">${i.status==='published'?'Published on':'Target date'}</div>
+          <input class="prop" type="date" id="dateInput" value="${esc(i.date||'')}">
+        </div>
+        ${(i.date&&i.status!=='published')?`<div style="align-self:end">${dueHTML(i)}</div>`:''}
       </div>
     </div>
 
@@ -754,10 +782,8 @@ function buildEditor(i){
   const ni=$('#notesInput');
   ni.oninput=e=>{i.notes=e.target.value;growNotes(ni);queueSave()};
   growNotes(ni);
-  // emoji
-  const pop=$('#emojiPop');
-  $('#emojiBtn').onclick=e=>{e.stopPropagation();pop.classList.toggle('show')};
-  pop.querySelectorAll('button').forEach(b=>b.onclick=()=>{i.emoji=b.dataset.e;pop.classList.remove('show');$('#emojiBtn').textContent=b.dataset.e;save();render()});
+  // target date
+  $('#dateInput').onchange=e=>{i.date=e.target.value;save();buildEditor(i);render()};
   buildTags(i); buildChecklist(i);
 }
 
@@ -812,7 +838,7 @@ function buildChecklist(i){
 
 /* ================= ACTIONS ================= */
 function newIdea(status){
-  const i={id:uid(),title:'',emoji:EMOJIS[Math.floor(Math.random()*EMOJIS.length)],hook:'',status:status||'idea',format:'long',tags:[],notes:'',checklist:DEFAULT_CHECK.map(t=>({t,done:false})),created:Date.now()};
+  const i={id:uid(),title:'',hook:'',status:status||'idea',format:'long',tags:[],notes:'',date:'',checklist:DEFAULT_CHECK.map(t=>({t,done:false})),created:Date.now()};
   ideas.unshift(i); save(); render(); openEditor(i.id);
 }
 function queueSave(){
@@ -840,7 +866,7 @@ $('#dupBtn').onclick=()=>{ const i=ideas.find(x=>x.id===openId); if(i){const c={
 $('#exportBtn').onclick=()=>{
   const md = '# YouTube Ideas\n\n'+ideas.map(i=>{
     const st=S[i.status].label;const done=i.checklist.filter(c=>c.done).length;
-    return `## ${i.emoji||''} ${i.title||'Untitled'}\n- **Status:** ${st} · **Format:** ${(FORMATS[i.format]||{}).label}\n- **Tags:** ${(i.tags||[]).join(', ')||'—'}\n- **Hook:** ${i.hook||'—'}\n${i.video?`- **Video:** ${i.video}\n`:''}- **Progress:** ${done}/${i.checklist.length}\n${i.notes?'\n'+i.notes+'\n':''}`;
+    return `## ${stEmoji(i)} ${i.title||'Untitled'}\n- **Status:** ${st} · **Format:** ${(FORMATS[i.format]||{}).label}\n- **Tags:** ${(i.tags||[]).join(', ')||'—'}\n- **Hook:** ${i.hook||'—'}\n${i.date?`- **Target date:** ${i.date}\n`:''}${i.video?`- **Video:** ${i.video}\n`:''}- **Progress:** ${done}/${i.checklist.length}\n${i.notes?'\n'+i.notes+'\n':''}`;
   }).join('\n---\n\n');
   const blob=new Blob([md],{type:'text/markdown'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='youtube-ideas.md';a.click();
@@ -851,8 +877,6 @@ function applyTheme(t){document.documentElement.setAttribute('data-theme',t);loc
 $('#themeBtn').onclick=()=>{const cur=document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark';applyTheme(cur)};
 (function(){const saved=localStorage.getItem('yt-theme');applyTheme(saved|| (matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light'))})();
 
-// close emoji pop on outside click
-document.addEventListener('click',e=>{const p=$('#emojiPop');if(p&&p.classList.contains('show')&&!e.target.closest('#emojiPop')&&!e.target.closest('#emojiBtn'))p.classList.remove('show')});
 // keyboard
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){ if($('#panel').classList.contains('show'))closeEditor(); }
