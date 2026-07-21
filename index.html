@@ -438,7 +438,7 @@ const TAG_COLORS = ['#8b7fd6','#3d9bd6','#e0a52b','#e0503a','#d0568f','#2ea36b',
 const tagColor = t => TAG_COLORS[[...t].reduce((a,c)=>a+c.charCodeAt(0),0)%TAG_COLORS.length];
 const EMOJIS = ['🎬','💡','🔥','🎥','📹','✨','🎯','📈','🧠','🎨','🕹️','🍜','☕','🌍','💻','📱','🎧','🏃','🐱','🌸','⚡','🎸','📚','🛠️','🚀','💬','🎤','🧪','🌙','🍿','🪩','🎮'];
 
-const DEFAULT_CHECK = ['Hook / cold open','Outline the beats','Write script','Film footage','Edit + color','Thumbnail + title','Publish & pin comment'];
+const DEFAULT_CHECK = ['Lock the idea + hook','Write the script','Shoot the video','Edit the video','Thumbnail + title','Publish & pin comment'];
 
 function uid(){return Math.random().toString(36).slice(2,9)}
 
