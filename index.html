@@ -92,7 +92,14 @@ a.brand-sub:hover{color:var(--accent)}
 
 .status-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
 
-.sidebar-foot{margin-top:auto;padding-top:12px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:6px}
+.sync-row{
+  margin-top:auto;display:flex;align-items:center;gap:9px;width:100%;
+  padding:10px 12px;border-radius:10px;font-size:12.5px;font-weight:500;color:var(--ink-2);
+  background:var(--panel);border:1px solid var(--line);box-shadow:var(--shadow);
+  text-align:left;transition:.14s;
+}
+.sync-row:hover{color:var(--ink);border-color:var(--line-2)}
+.sidebar-foot{margin-top:12px;padding-top:12px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:6px}
 .foot-btn{
   flex:1 1 calc(50% - 3px);display:flex;align-items:center;justify-content:center;gap:6px;
   padding:8px;border-radius:9px;font-size:12px;font-weight:500;color:var(--ink-2);
@@ -353,6 +360,25 @@ textarea.hook{min-height:70px}
 .due svg{width:12px;height:12px}
 input.prop[type="date"]{min-height:41px}
 
+/* modal */
+.modal{
+  position:fixed;top:50%;left:50%;transform:translate(-50%,-46%) scale(.97);
+  width:min(440px,92vw);max-height:86vh;overflow-y:auto;
+  background:var(--panel);border:1px solid var(--line);border-radius:18px;
+  padding:26px 26px 22px;box-shadow:var(--shadow-lg);z-index:60;
+  opacity:0;pointer-events:none;transition:opacity .24s,transform .24s cubic-bezier(.32,.72,0,1);
+}
+.modal.show{opacity:1;pointer-events:auto;transform:translate(-50%,-50%) scale(1)}
+.modal-title{font-family:'Fraunces',serif;font-size:21px;font-weight:600;letter-spacing:-.01em}
+.modal-sub{font-size:12px;color:var(--ink-3);font-weight:500;margin:4px 0 14px}
+.modal-copy{font-size:13.5px;line-height:1.55;color:var(--ink-2);margin-bottom:10px}
+.modal-copy strong{color:var(--ink)}
+.modal-steps{font-size:13.5px;line-height:1.55;color:var(--ink-2);padding-left:20px;margin-bottom:12px}
+.modal-steps li{margin-bottom:7px}
+.modal-steps a{color:var(--accent);font-weight:600}
+.modal-fine{font-size:11.5px;color:var(--ink-3);margin-top:8px}
+.modal-actions{display:flex;gap:10px;margin-top:16px}
+
 /* toast */
 .toast{
   position:fixed;bottom:26px;left:50%;transform:translateX(-50%) translateY(20px);
@@ -436,6 +462,11 @@ body.nav-open .side-scrim{opacity:1;pointer-events:auto}
     <div class="nav-label">Pipeline</div>
     <div id="status-nav"></div>
 
+    <button class="sync-row" id="syncBtn" title="Sync your board across devices">
+      <span class="status-dot" id="syncDot" style="background:var(--ink-3)"></span>
+      <span id="syncLabel">Set up sync</span>
+    </button>
+
     <div class="sidebar-foot">
       <button class="foot-btn" id="backupBtn" title="Download your board as a JSON backup">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
@@ -506,6 +537,36 @@ body.nav-open .side-scrim{opacity:1;pointer-events:auto}
 
 <div class="toast" id="toast"></div>
 
+<!-- SYNC MODAL -->
+<div class="scrim" id="syncScrim"></div>
+<div class="modal" id="syncModal">
+  <div class="modal-title">Sync across devices</div>
+  <div class="modal-sub" id="syncModalStatus">Not connected</div>
+
+  <div id="syncSetup">
+    <p class="modal-copy">Your board syncs through a <strong>private GitHub Gist</strong> — free, no account beyond your GitHub. Do this once per device with the <em>same token</em>:</p>
+    <ol class="modal-steps">
+      <li><a href="https://github.com/settings/tokens/new?scopes=gist&description=Idea%20Studio%20Sync" target="_blank" rel="noopener">Create a token</a> — the gist scope is pre-ticked; set expiration to "No expiration", then <strong>Generate</strong> &amp; copy it.</li>
+      <li>Paste it below. Your first device creates the gist; the second one finds it.</li>
+    </ol>
+    <input class="prop" id="syncTokenInput" type="password" placeholder="ghp_… paste token" autocomplete="off" autocapitalize="off" spellcheck="false" style="margin-top:4px">
+    <p class="modal-fine">The token is stored only in this browser and only touches your gists.</p>
+    <div class="modal-actions">
+      <button class="btn-primary" id="syncConnectBtn">Connect</button>
+      <button class="btn-ghost" id="syncCloseBtn">Later</button>
+    </div>
+  </div>
+
+  <div id="syncConnected" style="display:none">
+    <p class="modal-copy">This device is connected. Edits sync automatically a moment after you make them, and whenever you return to the tab.</p>
+    <p class="modal-copy">To add another device: open the site there, tap <strong>Set up sync</strong>, and paste the <em>same token</em>.</p>
+    <div class="modal-actions">
+      <button class="btn-primary" id="syncNowBtn">Sync now</button>
+      <button class="btn-ghost btn-danger" id="syncDisconnectBtn">Disconnect</button>
+    </div>
+  </div>
+</div>
+
 <script>
 /* ================= DATA ================= */
 const STATUSES = [
@@ -528,6 +589,7 @@ const DEFAULT_CHECK = ['Lock the idea + hook','Write the script','Shoot the vide
 
 function uid(){return Math.random().toString(36).slice(2,9)}
 
+let deletedMap = (()=>{try{const d=JSON.parse(localStorage.getItem('yt-deleted'));return (d&&typeof d==='object')?d:{}}catch(e){return {}}})();
 let ideas = load();
 let view = 'board';
 let filterStatus = null;
@@ -547,7 +609,12 @@ function load(){
   }catch(e){}
   return [];
 }
-function save(){ localStorage.setItem('yt-ideas-v2', JSON.stringify(ideas)); }
+function save(){
+  localStorage.setItem('yt-ideas-v2', JSON.stringify(ideas));
+  localStorage.setItem('yt-deleted', JSON.stringify(deletedMap));
+  scheduleSync();
+}
+function touch(i){ i.updated=Date.now(); }
 
 /* ================= RENDER ================= */
 const $ = s => document.querySelector(s);
@@ -781,7 +848,7 @@ function wireDnD(){
       if(idea && idea.status!==body.dataset.status){
         idea.status=body.dataset.status;
         if(body.dataset.status==='published') idea.checklist.forEach(c=>c.done=true);
-        save(); render(); toast(`Moved to ${S[body.dataset.status].label}`);
+        touch(idea); save(); render(); toast(`Moved to ${S[body.dataset.status].label}`);
       }
     });
   });
@@ -890,28 +957,28 @@ function buildEditor(i){
   `;
   // title
   const ti=$('#titleInput');
-  ti.oninput=()=>{i.title=ti.value;autoGrow(ti);queueSave()};
+  ti.oninput=()=>{i.title=ti.value;autoGrow(ti);queueSave(i)};
   ti.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();$('#hookInput').focus()}};
   // hook
-  $('#hookInput').oninput=e=>{i.hook=e.target.value;queueSave()};
+  $('#hookInput').oninput=e=>{i.hook=e.target.value;queueSave(i)};
   // status/format
-  $('#statusSel').onchange=e=>{i.status=e.target.value;if(i.status==='published')i.checklist.forEach(c=>c.done=true);save();buildEditor(i);render()};
+  $('#statusSel').onchange=e=>{i.status=e.target.value;if(i.status==='published')i.checklist.forEach(c=>c.done=true);touch(i);save();buildEditor(i);render()};
   // youtube link (published only)
   const vi=$('#videoInput');
   if(vi){
-    vi.oninput=e=>{i.video=e.target.value.trim();videoPreview(i);queueSave()};
+    vi.oninput=e=>{i.video=e.target.value.trim();videoPreview(i);queueSave(i)};
     videoPreview(i);
   }
-  $('#formatSel').onchange=e=>{i.format=e.target.value;queueSave()};
+  $('#formatSel').onchange=e=>{i.format=e.target.value;queueSave(i)};
   // notes
   const ni=$('#notesInput');
-  ni.oninput=e=>{i.notes=e.target.value;growNotes(ni);queueSave()};
+  ni.oninput=e=>{i.notes=e.target.value;growNotes(ni);queueSave(i)};
   growNotes(ni);
   // target date
-  $('#dateInput').onchange=e=>{i.date=e.target.value;save();buildEditor(i);render()};
+  $('#dateInput').onchange=e=>{i.date=e.target.value;touch(i);save();buildEditor(i);render()};
   // packaging
-  $('#packTitles').oninput=e=>{i.packTitles=e.target.value;queueSave()};
-  $('#packThumb').oninput=e=>{i.packThumb=e.target.value;queueSave()};
+  $('#packTitles').oninput=e=>{i.packTitles=e.target.value;queueSave(i)};
+  $('#packThumb').oninput=e=>{i.packThumb=e.target.value;queueSave(i)};
   buildTags(i); buildChecklist(i);
 }
 
@@ -930,7 +997,7 @@ function buildTags(i){
     const chip=document.createElement('span');
     chip.className='tag-chip';chip.style.color=tagColor(t);chip.style.background=tagColor(t)+'22';
     chip.innerHTML=`${esc(t)} <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 6l12 12M18 6L6 18"/></svg></button>`;
-    chip.querySelector('button').onclick=()=>{i.tags.splice(idx,1);save();buildTags(i);render()};
+    chip.querySelector('button').onclick=()=>{i.tags.splice(idx,1);touch(i);save();buildTags(i);render()};
     wrap.appendChild(chip);
   });
   const inp=document.createElement('input');
@@ -940,9 +1007,9 @@ function buildTags(i){
     if(e.key==='Enter'&&inp.value.trim()){
       i.tags=i.tags||[]; const v=inp.value.trim().toLowerCase();
       if(!i.tags.includes(v))i.tags.push(v);
-      inp.value='';save();buildTags(i);render();$('#tagsEdit').querySelector('.tag-input').focus();
+      inp.value='';touch(i);save();buildTags(i);render();$('#tagsEdit').querySelector('.tag-input').focus();
     }
-    if(e.key==='Backspace'&&!inp.value&&i.tags&&i.tags.length){i.tags.pop();save();buildTags(i);render();$('#tagsEdit').querySelector('.tag-input').focus()}
+    if(e.key==='Backspace'&&!inp.value&&i.tags&&i.tags.length){i.tags.pop();touch(i);save();buildTags(i);render();$('#tagsEdit').querySelector('.tag-input').focus()}
   };
   wrap.appendChild(inp);
 }
@@ -954,7 +1021,7 @@ function buildChecklist(i){
     row.className='check-item'+(c.done?' done':'');
     row.innerHTML=`<div class="check-box${c.done?' done':''}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 13l4 4L19 7"/></svg></div>
       <div class="check-label">${esc(c.t)}</div>`;
-    row.querySelector('.check-box').onclick=()=>{c.done=!c.done;save();buildChecklist(i);const p=progressOf(i);$('#progFill').style.width=p+'%';document.querySelector('#panelBody .field-label').parentElement; render()};
+    row.querySelector('.check-box').onclick=()=>{c.done=!c.done;touch(i);save();buildChecklist(i);const p=progressOf(i);$('#progFill').style.width=p+'%';document.querySelector('#panelBody .field-label').parentElement; render()};
     row.querySelector('.check-box').addEventListener('click',()=>{
       const p=progressOf(i);
       const lbl=[...document.querySelectorAll('.field-label')].find(el=>el.textContent.startsWith('Production'));
@@ -966,10 +1033,11 @@ function buildChecklist(i){
 
 /* ================= ACTIONS ================= */
 function newIdea(status){
-  const i={id:uid(),title:'',hook:'',status:status||'idea',format:'long',tags:[],notes:'',date:'',checklist:DEFAULT_CHECK.map(t=>({t,done:false})),created:Date.now()};
+  const i={id:uid(),title:'',hook:'',status:status||'idea',format:'long',tags:[],notes:'',date:'',checklist:DEFAULT_CHECK.map(t=>({t,done:false})),created:Date.now(),updated:Date.now()};
   ideas.unshift(i); save(); render(); openEditor(i.id);
 }
-function queueSave(){
+function queueSave(i){
+  if(i) touch(i);
   clearTimeout(saveTimer);
   saveTimer=setTimeout(()=>{save();showSaved();render()},450);
 }
@@ -1003,8 +1071,8 @@ $('#scrim').onclick=closeEditor;
 $('#menuBtn').onclick=()=>setNav($('#sidebar').classList.contains('collapsed'));
 $('#sideScrim').onclick=()=>setNav(false);
 $('#searchInput').oninput=e=>{query=e.target.value;render()};
-$('#delBtn').onclick=()=>{ if(openId && confirm('Delete this idea?')){ideas=ideas.filter(i=>i.id!==openId);save();closeEditor();render();toast('Idea deleted')} };
-$('#dupBtn').onclick=()=>{ const i=ideas.find(x=>x.id===openId); if(i){const c={...i,id:uid(),title:i.title+' (copy)',created:Date.now(),tags:[...(i.tags||[])],checklist:i.checklist.map(x=>({...x}))};ideas.unshift(c);save();render();openEditor(c.id);toast('Duplicated')} };
+$('#delBtn').onclick=()=>{ if(openId && confirm('Delete this idea?')){deletedMap[openId]=Date.now();ideas=ideas.filter(i=>i.id!==openId);save();closeEditor();render();toast('Idea deleted')} };
+$('#dupBtn').onclick=()=>{ const i=ideas.find(x=>x.id===openId); if(i){const c={...i,id:uid(),title:i.title+' (copy)',created:Date.now(),updated:Date.now(),tags:[...(i.tags||[])],checklist:i.checklist.map(x=>({...x}))};ideas.unshift(c);save();render();openEditor(c.id);toast('Duplicated')} };
 $('#exportBtn').onclick=()=>{
   const md = '# YouTube Ideas\n\n'+ideas.map(i=>{
     const st=S[i.status].label;const done=i.checklist.filter(c=>c.done).length;
@@ -1014,6 +1082,145 @@ $('#exportBtn').onclick=()=>{
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='youtube-ideas.md';a.click();
   toast('Exported as Markdown ✓');
 };
+/* ================= SYNC (private GitHub Gist) ================= */
+const SYNC_FILE='idea-studio-sync.json';
+const SY={
+  token:localStorage.getItem('yt-sync-token')||'',
+  gist:localStorage.getItem('yt-sync-gist')||'',
+  busy:false, last:0, timer:null, state:'off', // off | ok | syncing | error
+};
+
+const upd=x=>x.updated||x.created||0;
+// Pure merge: newer per-idea version wins; deletions beat older edits.
+function mergeBoards(localIdeas, localDel, remoteIdeas, remoteDel){
+  const del={...remoteDel,...localDel};
+  for(const k in remoteDel) if((remoteDel[k]||0)>(del[k]||0)) del[k]=remoteDel[k];
+  const best={};
+  [...remoteIdeas,...localIdeas].forEach(x=>{
+    if(!x||!x.id) return;
+    if(!best[x.id]||upd(x)>=upd(best[x.id])) best[x.id]=x;
+  });
+  const merged=Object.values(best).filter(x=>!((del[x.id]||0)>upd(x)));
+  merged.sort((a,b)=>b.created-a.created);
+  // prune tombstones older than 90 days
+  const cutoff=Date.now()-90*864e5;
+  for(const k in del) if(del[k]<cutoff) delete del[k];
+  return {ideas:merged, deleted:del};
+}
+
+async function gh(path,opts={}){
+  const res=await fetch('https://api.github.com'+path,{
+    ...opts,
+    headers:{'Authorization':'Bearer '+SY.token,'Accept':'application/vnd.github+json',...(opts.headers||{})},
+  });
+  if(!res.ok) throw new Error('GitHub '+res.status);
+  return res.json();
+}
+
+function syncDoc(){ return {v:1, savedAt:Date.now(), ideas, deleted:deletedMap}; }
+
+async function findOrCreateGist(){
+  const gists=await gh('/gists?per_page=100');
+  const hit=gists.find(g=>g.files&&g.files[SYNC_FILE]);
+  if(hit) return hit.id;
+  const created=await gh('/gists',{method:'POST',body:JSON.stringify({
+    description:'Idea Studio — YouTube ideas board (auto-sync)',
+    public:false,
+    files:{[SYNC_FILE]:{content:JSON.stringify(syncDoc())}},
+  })});
+  return created.id;
+}
+
+async function syncNow(){
+  if(!SY.token||!SY.gist||SY.busy) return;
+  SY.busy=true; setSyncUI('syncing');
+  try{
+    const g=await gh('/gists/'+SY.gist);
+    let remote={ideas:[],deleted:{}};
+    try{
+      const f=g.files[SYNC_FILE];
+      const raw=f.truncated ? await (await fetch(f.raw_url)).text() : f.content;
+      const d=JSON.parse(raw);
+      if(d&&Array.isArray(d.ideas)) remote={ideas:d.ideas,deleted:(d.deleted&&typeof d.deleted==='object')?d.deleted:{}};
+    }catch(e){/* unreadable remote → treat as empty, our copy becomes truth */}
+    const before=JSON.stringify(ideas);
+    const m=mergeBoards(ideas,deletedMap,remote.ideas,remote.deleted);
+    ideas=m.ideas; deletedMap=m.deleted;
+    localStorage.setItem('yt-ideas-v2',JSON.stringify(ideas));
+    localStorage.setItem('yt-deleted',JSON.stringify(deletedMap));
+    if(JSON.stringify(ideas)!==before) render();
+    await gh('/gists/'+SY.gist,{method:'PATCH',body:JSON.stringify({
+      files:{[SYNC_FILE]:{content:JSON.stringify(syncDoc())}},
+    })});
+    SY.last=Date.now(); setSyncUI('ok');
+  }catch(e){ setSyncUI('error'); }
+  SY.busy=false;
+}
+
+function scheduleSync(){
+  if(!SY.token||!SY.gist||SY.busy) return;
+  clearTimeout(SY.timer);
+  SY.timer=setTimeout(syncNow,2500);
+}
+
+function setSyncUI(state){
+  SY.state=state;
+  const dot=$('#syncDot'), label=$('#syncLabel');
+  if(!dot) return;
+  const map={
+    off:    ['var(--ink-3)','Set up sync'],
+    syncing:['#e0a52b','Syncing…'],
+    ok:     ['#2ea36b','Synced · '+new Date(SY.last).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})],
+    error:  ['#e0503a','Sync error — tap to fix'],
+  };
+  const [c,t]=map[state]||map.off;
+  dot.style.background=c; label.textContent=t;
+  const st=$('#syncModalStatus');
+  if(st) st.textContent = state==='off' ? 'Not connected' : (state==='error' ? 'Connection problem — check the token' : 'Connected · gist '+SY.gist.slice(0,8)+'…');
+}
+
+async function connectSync(token){
+  SY.token=token.trim();
+  if(!SY.token) return;
+  setSyncUI('syncing');
+  try{
+    SY.gist=await findOrCreateGist();
+    localStorage.setItem('yt-sync-token',SY.token);
+    localStorage.setItem('yt-sync-gist',SY.gist);
+    await syncNow();
+    if(SY.state==='ok'){ toast('Sync connected ✓'); closeSyncModal(); }
+  }catch(e){ SY.gist=''; setSyncUI('error'); toast("Couldn't connect — is the token valid with gist scope?"); }
+}
+function disconnectSync(){
+  SY.token='';SY.gist='';
+  localStorage.removeItem('yt-sync-token');localStorage.removeItem('yt-sync-gist');
+  setSyncUI('off'); toast('Sync disconnected — data stays on this device');
+}
+
+function openSyncModal(){
+  $('#syncTokenInput').value='';
+  $('#syncConnected').style.display=SY.token?'block':'none';
+  $('#syncSetup').style.display=SY.token?'none':'block';
+  setSyncUI(SY.state);
+  $('#syncScrim').classList.add('show');$('#syncModal').classList.add('show');
+}
+function closeSyncModal(){ $('#syncScrim').classList.remove('show');$('#syncModal').classList.remove('show'); }
+
+$('#syncBtn').onclick=openSyncModal;
+$('#syncScrim').onclick=closeSyncModal;
+$('#syncCloseBtn').onclick=closeSyncModal;
+$('#syncConnectBtn').onclick=()=>connectSync($('#syncTokenInput').value);
+$('#syncTokenInput').addEventListener('keydown',e=>{if(e.key==='Enter')connectSync(e.target.value)});
+$('#syncNowBtn').onclick=syncNow;
+$('#syncDisconnectBtn').onclick=()=>{if(confirm('Disconnect sync on this device?'))disconnectSync()};
+
+// auto-sync: on load, and whenever you come back to the tab (throttled)
+let lastFocusSync=0;
+function focusSync(){ const now=Date.now(); if(now-lastFocusSync>15000){lastFocusSync=now;syncNow()} }
+window.addEventListener('focus',focusSync);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)focusSync()});
+if(SY.token&&SY.gist){ setSyncUI('syncing'); syncNow(); } else setSyncUI('off');
+
 // JSON backup / restore
 $('#backupBtn').onclick=()=>{
   const blob=new Blob([JSON.stringify(ideas,null,2)],{type:'application/json'});
@@ -1039,9 +1246,13 @@ $('#importFile').onchange=e=>{
         packTitles:String(x.packTitles||''), packThumb:String(x.packThumb||''),
         checklist:Array.isArray(x.checklist)&&x.checklist.length?x.checklist.map(c=>({t:String(c.t||''),done:!!c.done})):DEFAULT_CHECK.map(t=>({t,done:false})),
         created:Number(x.created)||Date.now(),
+        updated:Number(x.updated)||Date.now(),
       }));
       if(!clean.length) throw new Error('no ideas in file');
       if(!confirm(`Replace your current board (${ideas.length} ideas) with this backup (${clean.length} ideas)?`)) return;
+      // ideas dropped by the import count as deletions so sync doesn't resurrect them
+      const kept=new Set(clean.map(x=>x.id));
+      ideas.forEach(x=>{ if(!kept.has(x.id)) deletedMap[x.id]=Date.now(); });
       ideas=clean; save(); render(); toast(`Imported ${clean.length} ideas ✓`);
     }catch(err){ toast("Couldn't read that file — is it an Idea Studio backup?"); }
   };
@@ -1055,7 +1266,10 @@ $('#themeBtn').onclick=()=>{const cur=document.documentElement.getAttribute('dat
 
 // keyboard
 document.addEventListener('keydown',e=>{
-  if(e.key==='Escape'){ if($('#panel').classList.contains('show'))closeEditor(); }
+  if(e.key==='Escape'){
+    if($('#syncModal').classList.contains('show')) closeSyncModal();
+    else if($('#panel').classList.contains('show')) closeEditor();
+  }
   if(e.key==='/'&&document.activeElement.tagName!=='INPUT'&&document.activeElement.tagName!=='TEXTAREA'){e.preventDefault();$('#searchInput').focus()}
   if(e.key==='n'&&!e.metaKey&&!e.ctrlKey&&document.activeElement.tagName!=='INPUT'&&document.activeElement.tagName!=='TEXTAREA'){e.preventDefault();newIdea()}
 });
