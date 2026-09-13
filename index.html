@@ -491,9 +491,14 @@ body.nav-open .side-scrim{opacity:1;pointer-events:auto}
   font-family:'Fraunces',serif;font-size:17px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums;
 }
 .dcard-fee.tbd{font-family:'Inter',sans-serif;font-size:11.5px;font-weight:500;color:var(--ink-3);letter-spacing:0}
+.dcard-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:11px}
+.dpill{font-size:10.5px;font-weight:600;padding:3px 8px;border-radius:6px;background:var(--panel-2);color:var(--ink-2)}
+.dpill.cat{background:transparent;border:1px solid var(--line-2);color:var(--ink-3)}
 .dcard-deliv{font-size:12.5px;color:var(--ink-2);line-height:1.45;margin-top:11px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .dcard-foot{display:flex;align-items:center;gap:7px;margin-top:11px;font-size:11px;color:var(--ink-3);font-weight:500;flex-wrap:wrap}
 .dcard-foot svg{width:12px;height:12px}
+a.linked.site{text-decoration:none;transition:.14s}
+a.linked.site:hover{color:var(--accent);background:var(--accent-soft)}
 .linked{
   display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:600;
   color:var(--ink-2);background:var(--panel-2);padding:3px 8px;border-radius:20px;
@@ -501,9 +506,13 @@ body.nav-open .side-scrim{opacity:1;pointer-events:auto}
 }
 .brandpill{font-size:10.5px;font-weight:600;padding:3px 8px;border-radius:6px;color:#9a6b2f;background:#f8eeda;display:inline-flex;align-items:center;gap:4px}
 
+.label-link{margin-left:auto;text-transform:none;letter-spacing:0;font-size:11px;font-weight:600;color:var(--accent);text-decoration:none}
+.label-link:hover{text-decoration:underline}
 .money-wrap{position:relative}
 .money-wrap .cur{position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:12.5px;font-weight:600;color:var(--ink-3);pointer-events:none}
 .money-wrap input.prop{padding-left:42px;font-variant-numeric:tabular-nums}
+.money-wrap.pct input.prop{padding-left:12px;padding-right:32px}
+.money-wrap .cur.suffix{left:auto;right:12px}
 .deliv-row{display:flex;align-items:center;gap:10px;padding:7px 8px;border-radius:9px;transition:background .12s}
 .deliv-row:hover{background:var(--panel-2)}
 .deliv-row .check-label{font-size:13.5px}
@@ -514,6 +523,16 @@ body.nav-open .side-scrim{opacity:1;pointer-events:auto}
 .deliv-x svg{width:12px;height:12px}
 .deliv-add{width:100%;background:var(--panel-2);border:1px dashed var(--line-2);border-radius:9px;padding:9px 12px;font-size:13px;outline:none;margin-top:6px;transition:border-color .15s}
 .deliv-add:focus{border-color:var(--accent);border-style:solid}
+.dcard[draggable="true"]{cursor:grab}
+.dcard.dragging{opacity:.5;transform:rotate(1.2deg);cursor:grabbing}
+.deal-group.vacant{display:none}
+body.dragging-deal .deal-group.vacant{display:block}
+.deal-drop{
+  border:1.5px dashed var(--line-2);border-radius:var(--radius);padding:18px;
+  text-align:center;font-size:12px;font-weight:500;color:var(--ink-3);transition:.14s;
+}
+.deal-group.drop .deal-drop{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.deal-group.drop .dealgrid{outline:2px dashed var(--accent);outline-offset:6px;border-radius:14px}
 .cal-chip.deal{border:1px dashed currentColor}
 textarea.brief{min-height:92px}
 .stat-val.money{font-size:23px}
@@ -713,6 +732,52 @@ const DEAL_STAGES = [
 const D = Object.fromEntries(DEAL_STAGES.map(s=>[s.id,s]));
 const LIVE_STAGES = ['lead','talking','confirmed','delivered','invoiced'];
 const CURRENCIES = {SGD:'S$',USD:'US$',MYR:'RM',EUR:'€',GBP:'£',AUD:'A$',JPY:'¥',KRW:'₩',INR:'₹'};
+// what you actually make for them
+const DEAL_TYPES = [
+  {id:'dedicated', label:'Dedicated video'},
+  {id:'integration', label:'Integration'},
+  {id:'short', label:'Short / Reel'},
+  {id:'series', label:'Multi-video / ambassador'},
+  {id:'ugc', label:'UGC (their channels)'},
+  {id:'event', label:'Event / appearance'},
+];
+// how you get compensated for it
+const COMP_TYPES = [
+  {id:'fee',        label:'Paid — flat fee'},
+  {id:'both',       label:'Fee + commission'},
+  {id:'commission', label:'Commission only'},
+  {id:'gifted',     label:'Unpaid — gifted product'},
+];
+const CT = Object.fromEntries(COMP_TYPES.map(x=>[x.id,x.label]));
+// deals saved before compensation had its own field
+const COMP_FROM_TYPE = {gifted:'gifted', affiliate:'commission'};
+// what the brand actually sells
+const PRODUCT_TYPES = [
+  {id:'beauty', label:'Beauty & skincare'},
+  {id:'fashion', label:'Fashion & accessories'},
+  {id:'tech', label:'Tech & gadgets'},
+  {id:'food', label:'Food & drink'},
+  {id:'travel', label:'Travel & stays'},
+  {id:'home', label:'Home & living'},
+  {id:'app', label:'App & software'},
+  {id:'health', label:'Health & fitness'},
+  {id:'finance', label:'Finance'},
+  {id:'other', label:'Other'},
+];
+const DT = Object.fromEntries(DEAL_TYPES.map(x=>[x.id,x.label]));
+const pctOf = d => { const n=parseFloat(d.commission); return isFinite(n)&&n>0 ? n : 0; };
+// what the money slot on a card says
+function feeLabel(d){
+  const fee=feeOf(d), pct=pctOf(d), comp=d.comp||'';
+  if(comp==='gifted') return {text:'Gifted', tbd:true};
+  if(comp==='commission') return pct?{text:pct+'%', tbd:false}:{text:'Commission', tbd:true};
+  if(fee>0&&comp==='both'&&pct) return {text:money(fee)+' + '+pct+'%', tbd:false};
+  if(fee>0) return {text:money(fee), tbd:false};
+  if(comp==='both'&&pct) return {text:pct+'%', tbd:false};
+  return {text:'Fee TBC', tbd:true};
+}
+const PT = Object.fromEntries(PRODUCT_TYPES.map(x=>[x.id,x.label]));
+
 const DEFAULT_DELIV = ['Agree scope + fee','Contract signed','Film the integration','Send draft for approval','Publish + send link','Send the invoice'];
 
 function uid(){return Math.random().toString(36).slice(2,9)}
@@ -743,10 +808,17 @@ function load(){
   }catch(e){}
   return [];
 }
+function migrateDeal(x){
+  if(!x||typeof x!=='object') return x;
+  if(!D[x.stage]) x.stage='lead';
+  // 'gifted' / 'affiliate' used to live in the type list; they're compensation
+  if(COMP_FROM_TYPE[x.type]){ if(!x.comp) x.comp=COMP_FROM_TYPE[x.type]; x.type=''; }
+  return x;
+}
 function loadDeals(){
   try{
     const d = JSON.parse(localStorage.getItem('yt-deals-v1'));
-    if(Array.isArray(d)){ d.forEach(x=>{ if(!D[x.stage]) x.stage='lead'; }); return d; }
+    if(Array.isArray(d)){ d.forEach(migrateDeal); return d; }
   }catch(e){}
   return [];
 }
@@ -769,6 +841,15 @@ function initials(name){
   const w=(name||'').trim().split(/\s+/).filter(Boolean);
   if(!w.length) return '–';
   return (w[0][0]+(w[1]?w[1][0]:'')).toUpperCase();
+}
+function siteHref(u){
+  const t=(u||'').trim();
+  if(!t) return '';
+  return /^https?:\/\//i.test(t) ? t : 'https://'+t.replace(/^\/+/,'');
+}
+function siteLabel(u){
+  try{ return new URL(siteHref(u)).hostname.replace(/^www\./,'') }
+  catch(e){ return (u||'').replace(/^https?:\/\//i,'').replace(/^www\./,'').split('/')[0] }
 }
 function dealsForIdea(id){ return deals.filter(d=>d.ideaId===id && d.stage!=='passed'); }
 
@@ -1002,7 +1083,7 @@ function filteredDeals(){
   const q=query.toLowerCase();
   return deals.filter(d=>{
     const idea = d.ideaId ? ideas.find(i=>i.id===d.ideaId) : null;
-    const hay = [d.brand,d.contact,d.brief,d.notes,idea&&idea.title,(d.checklist||[]).map(c=>c.t).join(' ')].filter(Boolean).join(' ');
+    const hay = [d.brand,d.contact,d.brief,d.notes,DT[d.type],PT[d.category],CT[d.comp],idea&&idea.title,(d.checklist||[]).map(c=>c.t).join(' ')].filter(Boolean).join(' ');
     return hay.toLowerCase().includes(q);
   });
 }
@@ -1012,20 +1093,27 @@ function dealCardHTML(d){
   const prog=progressOf(d);
   const idea=d.ideaId ? ideas.find(i=>i.id===d.ideaId) : null;
   const settled = d.stage==='paid'||d.stage==='passed';
-  return `<div class="dcard" data-id="${d.id}">
+  const fl=feeLabel(d);
+  return `<div class="dcard" data-id="${d.id}" draggable="true">
     <div class="dcard-top">
       <div class="mono" style="color:${st.color};background:${st.bg}">${esc(initials(d.brand))}</div>
       <div style="min-width:0">
         <div class="dcard-brand">${esc(d.brand)||'Untitled deal'}</div>
         ${d.contact?`<div class="dcard-contact">${esc(d.contact)}</div>`:''}
       </div>
-      <div class="dcard-fee${feeOf(d)>0?'':' tbd'}">${feeOf(d)>0?money(d.fee):'Fee TBC'}</div>
+      <div class="dcard-fee${fl.tbd?' tbd':''}">${fl.text}</div>
     </div>
+    ${(d.type||d.category||d.comp==='gifted')?`<div class="dcard-tags">
+      ${d.type&&DT[d.type]?`<span class="dpill">${DT[d.type]}</span>`:''}
+      ${d.comp==='gifted'?`<span class="dpill">Unpaid</span>`:''}
+      ${d.category&&PT[d.category]?`<span class="dpill cat">${PT[d.category]}</span>`:''}
+    </div>`:''}
     ${d.brief?`<div class="dcard-deliv">${esc(d.brief)}</div>`:''}
-    ${(d.due||idea||(prog>0&&prog<100))?`<div class="dcard-foot">
-      ${d.due?dateChip(d.due,settled):''}
+    ${(d.due||d.first||idea||(prog>0&&prog<100))?`<div class="dcard-foot">
+      ${d.due?dateChip(d.due,settled):(d.first?`<span class="due" title="They reached out on ${esc(d.first)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3.5 7l8.5 6 8.5-6"/></svg>Since ${fmtDate(d.first)}</span>`:'')}
       ${prog>0&&prog<100?`<span class="prog"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>${prog}%</span>`:''}
       ${idea?`<span class="linked"><svg viewBox="0 0 24 24" fill="currentColor" style="width:11px;height:11px"><path d="M8 5.5v13a1 1 0 001.54.84l10-6.5a1 1 0 000-1.68l-10-6.5A1 1 0 008 5.5z"/></svg>${esc(idea.title)||'Untitled'}</span>`:''}
+      ${d.site?`<a class="linked site" href="${esc(siteHref(d.site))}" target="_blank" rel="noopener" draggable="false" title="${esc(siteHref(d.site))}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:11px;height:11px"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18"/></svg>${esc(siteLabel(d.site))}</a>`:''}
     </div>`:''}
   </div>`;
 }
@@ -1062,16 +1150,18 @@ function renderDeals(){
     body = DEAL_STAGES.map(st=>{
       const items = shown.filter(d=>d.stage===st.id)
         .sort((a,b)=>(a.due||'~').localeCompare(b.due||'~')||b.created-a.created);
-      if(!items.length) return '';
       const sum=sumFees(items);
-      return `<div class="deal-group">
+      // empty stages stay hidden until a card is picked up, so there's always somewhere to drop
+      return `<div class="deal-group${items.length?'':' vacant'}" data-stage="${st.id}">
         <div class="deal-group-head">
           <span class="status-dot" style="background:${st.color}"></span>
           <span class="deal-group-title">${st.label}</span>
           <span class="col-count">${items.length}</span>
           ${sum?`<span class="deal-group-sum">${money(sum)}</span>`:''}
         </div>
-        <div class="dealgrid">${items.map(dealCardHTML).join('')}</div>
+        ${items.length
+          ? `<div class="dealgrid">${items.map(dealCardHTML).join('')}</div>`
+          : `<div class="deal-drop">Drop here to move it to ${st.label}</div>`}
       </div>`;
     }).join('');
   }
@@ -1080,7 +1170,50 @@ function renderDeals(){
   content.querySelectorAll('.chip-filter').forEach(b=>b.onclick=()=>{dealFilter=b.dataset.stage||null;render()});
   const cs=$('#curSel');
   if(cs) cs.onchange=e=>{currency=e.target.value;localStorage.setItem('yt-currency',currency);render()};
-  content.querySelectorAll('.dcard').forEach(c=>c.onclick=()=>openDeal(c.dataset.id));
+  content.querySelectorAll('.dcard').forEach(c=>c.onclick=()=>{ if(!dealDragId&&!c.classList.contains('dragging')) openDeal(c.dataset.id) });
+  content.querySelectorAll('a.linked.site').forEach(a=>a.onclick=e=>e.stopPropagation());
+  wireDealDnD();
+}
+
+/* ---- drag a deal between stages ---- */
+let dealDragId=null;
+function wireDealDnD(){
+  content.querySelectorAll('.dcard').forEach(c=>{
+    c.addEventListener('dragstart',e=>{
+      dealDragId=c.dataset.id;
+      c.classList.add('dragging');
+      document.body.classList.add('dragging-deal');
+      e.dataTransfer.effectAllowed='move';
+      try{ e.dataTransfer.setData('text/plain',c.dataset.id) }catch(_){}
+    });
+    c.addEventListener('dragend',()=>{
+      c.classList.remove('dragging');
+      endDealDrag();
+    });
+  });
+  content.querySelectorAll('.deal-group').forEach(g=>{
+    g.addEventListener('dragover',e=>{
+      if(!dealDragId) return;
+      e.preventDefault(); e.dataTransfer.dropEffect='move';
+      g.classList.add('drop');
+    });
+    g.addEventListener('dragleave',e=>{ if(!g.contains(e.relatedTarget)) g.classList.remove('drop') });
+    g.addEventListener('drop',e=>{
+      e.preventDefault(); g.classList.remove('drop');
+      const d=deals.find(x=>x.id===dealDragId);
+      const stage=g.dataset.stage;
+      endDealDrag();
+      if(d && D[stage] && d.stage!==stage){
+        d.stage=stage; touch(d); save(); render();
+        toast(`${d.brand||'Deal'} \u2192 ${D[stage].label}`);
+      }
+    });
+  });
+}
+function endDealDrag(){
+  dealDragId=null;
+  document.body.classList.remove('dragging-deal');
+  content.querySelectorAll('.deal-group.drop').forEach(g=>g.classList.remove('drop'));
 }
 
 function renderEmpty(){
@@ -1331,17 +1464,56 @@ function buildDealEditor(d){
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
           </div>
         </div>
-        <div><div class="field-label">Fee (${currency})</div>
+        <div><div class="field-label">Partnership type</div>
+          <div class="select-wrap">
+            <select class="prop" id="dealType">
+              <option value="">Not decided yet</option>
+              ${DEAL_TYPES.map(x=>`<option value="${x.id}" ${x.id===d.type?'selected':''}>${x.label}</option>`).join('')}
+            </select>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+          </div>
+        </div>
+        <div><div class="field-label">Compensation</div>
+          <div class="select-wrap">
+            <select class="prop" id="dealComp">
+              <option value="">Not agreed yet</option>
+              ${COMP_TYPES.map(x=>`<option value="${x.id}" ${x.id===d.comp?'selected':''}>${x.label}</option>`).join('')}
+            </select>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+          </div>
+        </div>
+        ${d.comp==='gifted' ? '' : `<div><div class="field-label">Fee (${currency})</div>
           <div class="money-wrap">
             <span class="cur">${curSym()}</span>
             <input class="prop" id="feeInput" inputmode="decimal" placeholder="0" value="${esc(d.fee||'')}" autocomplete="off">
           </div>
+        </div>`}
+        ${(d.comp==='commission'||d.comp==='both') ? `<div><div class="field-label">Commission</div>
+          <div class="money-wrap pct">
+            <input class="prop" id="pctInput" inputmode="decimal" placeholder="0" value="${esc(d.commission||'')}" autocomplete="off">
+            <span class="cur suffix">%</span>
+          </div>
+        </div>` : ''}
+        <div><div class="field-label">What they sell</div>
+          <div class="select-wrap">
+            <select class="prop" id="dealCategory">
+              <option value="">Uncategorised</option>
+              ${PRODUCT_TYPES.map(x=>`<option value="${x.id}" ${x.id===d.category?'selected':''}>${x.label}</option>`).join('')}
+            </select>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+          </div>
+        </div>
+        <div><div class="field-label">They reached out</div>
+          <input class="prop" type="date" id="dealFirst" value="${esc(d.first||'')}">
         </div>
         <div><div class="field-label">${d.stage==='paid'?'Paid on':'Deliver by'}${(d.due&&d.stage!=='paid'&&d.stage!=='passed'&&dateClass(d.due,false))?`<span style="margin-left:auto;text-transform:none;letter-spacing:0">${dateChip(d.due,false)}</span>`:''}</div>
           <input class="prop" type="date" id="dealDue" value="${esc(d.due||'')}">
         </div>
-        <div><div class="field-label">Contact</div>
+        <div style="grid-column:1/-1"><div class="field-label">Contact</div>
           <input class="prop" id="dealContact" placeholder="Name or email" value="${esc(d.contact||'')}" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false">
+        </div>
+        <div style="grid-column:1/-1"><div class="field-label">Website${d.site?`<a class="label-link" href="${esc(siteHref(d.site))}" target="_blank" rel="noopener">Open ↗</a>`:''}</div>
+          <input class="prop" id="dealSite" placeholder="brand.com" value="${esc(d.site||'')}" inputmode="url" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false">
         </div>
       </div>
     </div>
@@ -1381,14 +1553,26 @@ function buildDealEditor(d){
   bi.oninput=()=>{d.brand=bi.value;autoGrow(bi);queueSave(d)};
   bi.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();$('#dealBrief').focus()}};
   $('#dealStage').onchange=e=>{d.stage=e.target.value;touch(d);save();buildDealEditor(d);render()};
-  const fi=$('#feeInput');
-  fi.oninput=e=>{
+  const num=(el,set)=>{ if(!el) return; el.oninput=e=>{
     const clean=e.target.value.replace(/[^\d.]/g,'');
     if(clean!==e.target.value) e.target.value=clean;
-    d.fee=clean; queueSave(d);
+    set(clean); queueSave(d);
+  }};
+  num($('#feeInput'), v=>d.fee=v);
+  num($('#pctInput'), v=>d.commission=v);
+  $('#dealComp').onchange=e=>{
+    // the hidden fields keep their values, so flipping back doesn't lose a typed number
+    d.comp=e.target.value;
+    touch(d); save(); buildDealEditor(d); render();
   };
+  $('#dealType').onchange=e=>{d.type=e.target.value;touch(d);save();buildDealEditor(d);render()};
+  $('#dealCategory').onchange=e=>{d.category=e.target.value;touch(d);save();render()};
+  $('#dealFirst').onchange=e=>{d.first=e.target.value;touch(d);save();render()};
   $('#dealDue').onchange=e=>{d.due=e.target.value;touch(d);save();buildDealEditor(d);render()};
   $('#dealContact').oninput=e=>{d.contact=e.target.value;queueSave(d)};
+  const si=$('#dealSite');
+  si.oninput=e=>{d.site=e.target.value.trim();queueSave(d)};
+  si.onblur=()=>{ if(d.site) buildDealEditor(d); };
   $('#dealIdea').onchange=e=>{d.ideaId=e.target.value;touch(d);save();buildDealEditor(d);render()};
   const gi=$('#gotoIdea'); if(gi) gi.onclick=()=>openEditor(d.ideaId);
   const bf=$('#dealBrief');
@@ -1430,7 +1614,8 @@ function dealProgUI(d){
 }
 
 function newDeal(stage){
-  const d={id:uid(),brand:'',contact:'',stage:stage||'lead',fee:'',due:'',ideaId:'',brief:'',notes:'',
+  const d={id:uid(),brand:'',contact:'',stage:stage||'lead',type:'',category:'',comp:'',fee:'',commission:'',
+    first:dkey(new Date()),due:'',site:'',ideaId:'',brief:'',notes:'',
     checklist:DEFAULT_DELIV.map(t=>({t,done:false})),created:Date.now(),updated:Date.now()};
   deals.unshift(d); save();
   if(view!=='deals'){ view='deals'; dealFilter=null; }
@@ -1504,7 +1689,7 @@ $('#exportBtn').onclick=()=>{
       const st=(D[d.stage]||D.lead).label;
       const idea=d.ideaId?ideas.find(i=>i.id===d.ideaId):null;
       const done=(d.checklist||[]).filter(c=>c.done).length;
-      return `## 🤝 ${d.brand||'Untitled deal'}\n- **Stage:** ${st}\n- **Fee:** ${feeOf(d)>0?money(d.fee):'TBC'}\n${d.contact?`- **Contact:** ${d.contact}\n`:''}${d.due?`- **${d.stage==='paid'?'Paid on':'Deliver by'}:** ${d.due}\n`:''}${idea?`- **Video:** ${idea.title||'Untitled'}\n`:''}- **Deliverables:** ${done}/${(d.checklist||[]).length} done\n${d.brief?`\n**Brief & terms:** ${d.brief}\n`:''}${d.notes?'\n'+d.notes+'\n':''}`;
+      return `## 🤝 ${d.brand||'Untitled deal'}\n- **Stage:** ${st}\n${d.type&&DT[d.type]?`- **Type:** ${DT[d.type]}\n`:''}${d.category&&PT[d.category]?`- **Category:** ${PT[d.category]}\n`:''}${d.comp&&CT[d.comp]?`- **Compensation:** ${CT[d.comp]}\n`:''}- **Fee:** ${feeLabel(d).text}\n${d.first?`- **They reached out:** ${d.first}\n`:''}${d.contact?`- **Contact:** ${d.contact}\n`:''}${d.site?`- **Website:** ${siteHref(d.site)}\n`:''}${d.due?`- **${d.stage==='paid'?'Paid on':'Deliver by'}:** ${d.due}\n`:''}${idea?`- **Video:** ${idea.title||'Untitled'}\n`:''}- **Deliverables:** ${done}/${(d.checklist||[]).length} done\n${d.brief?`\n**Brief & terms:** ${d.brief}\n`:''}${d.notes?'\n'+d.notes+'\n':''}`;
     }).join('\n---\n\n');
   }
   const blob=new Blob([md],{type:'text/markdown'});
@@ -1590,7 +1775,7 @@ async function syncNow(){
     ideas=m.ideas; deletedMap=m.deleted;
     const md=mergeBoards(deals,dealsDeleted,remote.deals,remote.dealsDeleted);
     deals=md.ideas; dealsDeleted=md.deleted;
-    deals.forEach(x=>{ if(!D[x.stage]) x.stage='lead'; });
+    deals.forEach(migrateDeal);
     localStorage.setItem('yt-ideas-v2',JSON.stringify(ideas));
     localStorage.setItem('yt-deleted',JSON.stringify(deletedMap));
     localStorage.setItem('yt-deals-v1',JSON.stringify(deals));
@@ -1743,7 +1928,10 @@ $('#importFile').onchange=e=>{
       const cleanDeals = rawDeals.filter(x=>x&&typeof x==='object').map(x=>({
         id:String(x.id||uid()), brand:String(x.brand||''), contact:String(x.contact||''),
         stage:D[x.stage]?x.stage:'lead',
-        fee:String(x.fee||''), due:String(x.due||''), ideaId:String(x.ideaId||''),
+        type:DT[x.type]?x.type:'', category:PT[x.category]?x.category:'',
+        comp:CT[x.comp]?x.comp:(COMP_FROM_TYPE[x.type]||''), commission:String(x.commission||''),
+        fee:String(x.fee||''), first:String(x.first||''), due:String(x.due||''),
+        site:String(x.site||''), ideaId:String(x.ideaId||''),
         brief:String(x.brief||''), notes:String(x.notes||''),
         checklist:Array.isArray(x.checklist)?x.checklist.map(c=>({t:String(c.t||''),done:!!c.done})):[],
         created:Number(x.created)||Date.now(),
