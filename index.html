@@ -275,6 +275,20 @@ a.brand-sub:hover{color:var(--accent)}
 .format-pill svg{width:11px;height:11px}
 .series-pill .emo{font-size:11px}
 .series-pill .txt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.series-pill button{opacity:.5;display:grid;place-items:center;width:13px;height:13px;border-radius:50%;flex-shrink:0;margin-left:1px}
+.series-pill button:hover{opacity:1}
+.series-pill button svg{width:10px;height:10px}
+.pill-stack{display:flex;flex-wrap:wrap;gap:4px;max-width:100%}
+.series-edit{display:flex;flex-wrap:wrap;gap:5px;align-items:center;padding:3px 0;min-width:0}
+.add-pill{
+  position:relative;display:inline-flex;align-items:center;gap:4px;flex-shrink:0;
+  font-size:12.5px;font-weight:450;color:var(--ink-3);
+  padding:3px 8px;border-radius:var(--radius);transition:background .1s,color .1s;
+}
+.add-pill:hover{background:var(--hover);color:var(--ink-2)}
+.add-pill:focus-within{background:var(--hover);box-shadow:0 0 0 2px var(--accent-soft)}
+.add-pill select{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;appearance:none;border:none;background:none}
+.add-pill.done{display:none}
 .dpill{background:var(--tint-2);color:var(--ink-2)}
 .dpill.cat{background:transparent;box-shadow:inset 0 0 0 1px var(--line-2);color:var(--ink-3)}
 .brandpill{background:var(--c-yellow-bg);color:var(--c-yellow-fg)}
@@ -939,12 +953,24 @@ const SERIES = [
   {id:'slow',    label:'slow productivity',      emoji:'🌿', c:'green',  fits:'Japanese learning, study routines, morning routines, no-scroll routines, planning'},
   {id:'journal', label:'journal diaries',        emoji:'📓', c:'brown',  fits:'journal setups, Paper Republic, journaling sessions, planning systems'},
   {id:'reading', label:'reading diaries',        emoji:'📖', c:'yellow', fits:'reading vlogs, Kobo, book-related videos'},
+  {id:'shorts',  label:'shorts',                 emoji:'⚡', c:'purple', fits:'vertical cuts, teasers for a long-form video, single tips, trending audio'},
 ];
 const SER = Object.fromEntries(SERIES.map(x=>[x.id,x]));
 // playlists that got folded into another one — keep the ideas, move the label
 const SERIES_REMAP = {bag:'loving'};
 const UNSORTED = {id:'', label:'No series yet', emoji:'🗂', c:'gray', fits:'Ideas you haven’t filed into a playlist yet'};
-const serOf = i => SER[i.series] || UNSORTED;
+// an idea can sit in several playlists; i.series is a list of ids
+const seriesIds = i => Array.isArray(i.series) ? i.series : (typeof i.series==='string' && i.series ? [i.series] : []);
+const seriesOf  = i => seriesIds(i).map(id=>SER[id]).filter(Boolean);
+// '' means "not in any playlist"
+const inSeries  = (i,id) => id==='' ? !seriesIds(i).length : seriesIds(i).includes(id);
+// surfaces that can only carry one colour/emoji use the first one
+const serOf = i => seriesOf(i)[0] || UNSORTED;
+const seriesPills = i => seriesOf(i).map(x=>seriesPill(x)).join('');
+function setSeries(i,ids){
+  i.series=[...new Set(ids.filter(id=>SER[id]))];
+  touch(i);
+}
 
 const FORMATS = {
   long:  {label:'Long-form', icon:'M4 6.5A2.5 2.5 0 016.5 4h11A2.5 2.5 0 0120 6.5v11a2.5 2.5 0 01-2.5 2.5h-11A2.5 2.5 0 014 17.5v-11z', c:'blue'},
@@ -1044,8 +1070,13 @@ const STATUS_REMAP = {research:'idea', film:'video'};
 function migrateIdea(x){
   if(!x||typeof x!=='object') return x;
   if(!S[x.status]) x.status = STATUS_REMAP[x.status] || 'idea';
-  if(typeof x.series!=='string') x.series='';
-  else if(x.series && !SER[x.series]) x.series = SERIES_REMAP[x.series] || '';
+  // a single id (older saves, or a device still on the old build) becomes a one-item list
+  const raw = Array.isArray(x.series) ? x.series
+            : (typeof x.series==='string' && x.series ? [x.series] : []);
+  x.series = [...new Set(raw
+    .filter(id=>typeof id==='string' && id)
+    .map(id=>SER[id] ? id : (SERIES_REMAP[id]||''))
+    .filter(Boolean))];
   return x;
 }
 function load(){
@@ -1122,11 +1153,11 @@ function seriesNav(){
   SERIES.forEach(x=>{
     wrap.appendChild(navItem({
       active:filterSeries===x.id, emo:x.emoji, label:x.label,
-      count:ideas.filter(i=>i.series===x.id).length,
+      count:ideas.filter(i=>inSeries(i,x.id)).length,
       onclick:()=>{filterSeries=x.id;goIdeas();},
     }));
   });
-  const loose = ideas.filter(i=>!i.series).length;
+  const loose = ideas.filter(i=>inSeries(i,'')).length;
   if(loose) wrap.appendChild(navItem({
     active:filterSeries==='', emo:UNSORTED.emoji, label:UNSORTED.label, count:loose,
     onclick:()=>{filterSeries='';goIdeas();},
@@ -1158,7 +1189,7 @@ function goIdeas(){
 function filtered(){
   return ideas.filter(i=>{
     if(filterStatus && i.status!==filterStatus) return false;
-    if(filterSeries!==null && (i.series||'')!==filterSeries) return false;
+    if(filterSeries!==null && !inSeries(i,filterSeries)) return false;
     if(query){
       const q=query.toLowerCase();
       return (i.title+' '+i.hook+' '+i.notes+' '+(i.packTitles||'')+' '+(i.packThumb||'')+' '+(i.tags||[]).join(' ')).toLowerCase().includes(q);
@@ -1187,7 +1218,7 @@ function renderStats(){
   if(page==='deals') return renderDealStats();
   // a series filter scopes the numbers; otherwise they're the whole channel
   const scoped = filterSeries!==null;
-  const list = scoped ? ideas.filter(i=>(i.series||'')===filterSeries) : ideas;
+  const list = scoped ? ideas.filter(i=>inSeries(i,filterSeries)) : ideas;
   const posted = list.filter(i=>i.status==='published');
   const cards = [
     {v:list.length, l:plural(list.length,'idea','ideas'), e:'💡'},
@@ -1199,7 +1230,7 @@ function renderStats(){
     const last = posted.map(i=>i.date).filter(Boolean).sort().pop();
     if(last) cards.push({pre:'last out', v:relDays(daysSince(last),last), e:'🕗'});
   }else{
-    cards.push({v:ideas.filter(i=>!i.series).length, l:'unfiled', e:'🗂'});
+    cards.push({v:ideas.filter(i=>inSeries(i,'')).length, l:'unfiled', e:'🗂'});
   }
   statLine(cards);
 }
@@ -1238,7 +1269,7 @@ const dueClass = i => dateClass(i.date, i.status==='published');
 const dueHTML  = i => dateChip(i.date, i.status==='published');
 
 function cardHTML(i){
-  const fmt=FORMATS[i.format]||FORMATS.long, ser=serOf(i), st=S[i.status]||S.idea;
+  const fmt=FORMATS[i.format]||FORMATS.long, st=S[i.status]||S.idea;
   const tags=(i.tags||[]).slice(0,2).map(t=>`<span class="tag c-${tagCls(t)}">${esc(t)}</span>`).join('');
   const partner=dealsForIdea(i.id)[0];
   const prog=progressOf(i);
@@ -1246,7 +1277,7 @@ function cardHTML(i){
   // grouped by series, the series pill is redundant and the stage chip is what you want
   const lead = groupBy==='series'
     ? `<span class="status-chip c-${st.c}">${dot(st.c)}${st.label}</span>`
-    : (i.series?seriesPill(ser):'');
+    : seriesPills(i);
   return `<div class="card" data-id="${i.id}" draggable="true">
     ${thumb?`<img class="card-thumb" src="${thumb}" alt="" loading="lazy" draggable="false">`:''}
     <div class="card-title">${stEmoji(i)} ${esc(i.title)||'Untitled'}</div>
@@ -1264,9 +1295,12 @@ function cardHTML(i){
 // board columns come from whichever property you're grouping by
 function boardGroups(){
   if(groupBy==='series'){
-    const cols = SERIES.map(x=>({key:x.id, label:x.label, emoji:x.emoji, c:x.c, match:i=>i.series===x.id}));
-    cols.push({key:'', label:UNSORTED.label, emoji:UNSORTED.emoji, c:UNSORTED.c, match:i=>!i.series});
-    return cols;
+    // an idea in two playlists shows up in both columns
+    const cols = SERIES.map(x=>({key:x.id, label:x.label, emoji:x.emoji, c:x.c, match:i=>inSeries(i,x.id)}));
+    cols.push({key:'', label:UNSORTED.label, emoji:UNSORTED.emoji, c:UNSORTED.c, match:i=>inSeries(i,'')});
+    // filtered to one playlist, show only that column — otherwise a multi-filed idea
+    // would appear again under its other playlist and read as a duplicate
+    return filterSeries===null ? cols : cols.filter(g=>g.key===filterSeries);
   }
   return STATUSES.map(st=>({key:st.id, label:st.label, emoji:st.emoji, c:st.c, dot:true, match:i=>i.status===st.id}));
 }
@@ -1303,11 +1337,11 @@ function renderTable(){
   content.innerHTML = `<div class="tablewrap scrollhide"><table><thead><tr>
       <th style="width:34%">Idea</th><th>Series</th><th>Stage</th><th>Format</th><th>Target</th><th>Tags</th><th>Done</th>
     </tr></thead><tbody>${sorted.map(i=>{
-      const st=S[i.status], fmt=FORMATS[i.format]||FORMATS.long, prog=progressOf(i), ser=serOf(i);
+      const st=S[i.status], fmt=FORMATS[i.format]||FORMATS.long, prog=progressOf(i);
       const tags=(i.tags||[]).map(t=>`<span class="tag c-${tagCls(t)}">${esc(t)}</span>`).join(' ')||'<span style="color:var(--ink-3)">—</span>';
       return `<tr data-id="${i.id}">
         <td><div class="t-title">${stEmoji(i)} ${esc(i.title)||'Untitled'}</div>${i.hook?`<div class="t-hook">${esc(i.hook)}</div>`:''}</td>
-        <td>${i.series?seriesPill(ser):'<span style="color:var(--ink-3)">—</span>'}</td>
+        <td><div class="pill-stack">${seriesPills(i)||'<span style="color:var(--ink-3)">—</span>'}</div></td>
         <td><span class="status-chip c-${st.c}">${dot(st.c)}${st.label}</span></td>
         <td><span class="format-pill c-${fmt.c}"><svg viewBox="0 0 24 24" fill="currentColor"><path d="${fmt.icon}"/></svg>${fmt.label}</span></td>
         <td>${i.date?dueHTML(i):'<span style="color:var(--ink-3)">—</span>'}</td>
@@ -1322,17 +1356,17 @@ function renderGallery(){
   const list = filtered();
   if(!list.length){ return renderEmpty(); }
   content.innerHTML = `<div class="gallery">${list.map(i=>{
-    const st=S[i.status], ser=serOf(i);
+    const st=S[i.status], ser=serOf(i), filed=!inSeries(i,'');
     const tags=(i.tags||[]).slice(0,3).map(t=>`<span class="tag c-${tagCls(t)}">${esc(t)}</span>`).join('');
     return `<div class="gcard" data-id="${i.id}">
-      <div class="gcard-thumb c-${ser.c}">
-        ${(i.status==='published'&&ytThumb(i.video))?`<img class="yt" src="${ytThumb(i.video)}" alt="" loading="lazy">`:`<span class="emoji">${i.series?ser.emoji:stEmoji(i)}</span>`}
+      <div class="gcard-thumb c-${filed?ser.c:'gray'}">
+        ${(i.status==='published'&&ytThumb(i.video))?`<img class="yt" src="${ytThumb(i.video)}" alt="" loading="lazy">`:`<span class="emoji">${filed?ser.emoji:stEmoji(i)}</span>`}
         <span class="gcard-status status-chip c-${st.c}">${dot(st.c)}${st.label}</span>
       </div>
       <div class="gcard-body">
         <div class="card-title">${esc(i.title)||'Untitled'}</div>
         ${i.hook?`<div class="card-hook">${esc(i.hook)}</div>`:''}
-        <div class="card-meta">${i.series?seriesPill(ser):''}${tags}</div>
+        <div class="card-meta">${seriesPills(i)}${tags}</div>
       </div>
     </div>`;
   }).join('')}</div>`;
@@ -1357,7 +1391,7 @@ function relDays(n,d){
 }
 
 function planRow(x, list, peak){
-  const mine = list.filter(i=>(i.series||'')===x.id);
+  const mine = list.filter(i=>inSeries(i,x.id));
   const published = mine.filter(i=>i.status==='published');
   const live = mine.filter(i=>i.status!=='published');
   // the nearest thing with a date that hasn't shipped
@@ -1392,29 +1426,28 @@ function planRow(x, list, peak){
 
 // the series sub-tab row — shared chrome above every idea view
 function planSubtabs(){
-  const loose = ideas.filter(i=>!i.series).length;
+  const loose = ideas.filter(i=>inSeries(i,'')).length;
   const chip=(key,label,emoji,n,active)=>
     `<button class="chip-filter${active?' active':''}${n?'':' zero'}" data-tab="${esc(key)}">${
       emoji?`<span class="emo">${emoji}</span>`:''}${esc(label)} <span class="n">${n}</span></button>`;
   return `<div class="subtabs">
     ${chip('all','All','',ideas.length,filterSeries===null)}
-    ${SERIES.map(x=>chip(x.id,x.label,x.emoji,ideas.filter(i=>i.series===x.id).length,filterSeries===x.id)).join('')}
+    ${SERIES.map(x=>chip(x.id,x.label,x.emoji,ideas.filter(i=>inSeries(i,x.id)).length,filterSeries===x.id)).join('')}
     ${loose?chip('none',UNSORTED.label,UNSORTED.emoji,loose,filterSeries===''):''}
   </div>`;
 }
 
 // one row per idea inside a series tab — the Series cell refiles without opening the editor
 function planIdeaRow(i){
-  const st=S[i.status]||S.idea, prog=progressOf(i), ser=serOf(i);
+  const st=S[i.status]||S.idea, prog=progressOf(i), chosen=seriesIds(i);
   return `<tr class="prow" data-id="${i.id}">
     <td class="tight"><span class="row-title">${stEmoji(i)} ${esc(i.title)||'Untitled'}</span></td>
     <td class="tight"><span class="status-chip c-${st.c}">${dot(st.c)}${st.label}</span></td>
-    <td class="tight" data-stop><div class="pill-sel">${
-        i.series?seriesPill(ser):'<span class="empty-val">Unfiled</span>'
-      }<select data-refile="${i.id}">
-        <option value="">${UNSORTED.label}</option>
-        ${SERIES.map(x=>`<option value="${x.id}" ${x.id===i.series?'selected':''}>${x.emoji} ${x.label}</option>`).join('')}
-      </select></div></td>
+    <td class="tight" data-stop><div class="series-edit">${
+      seriesOf(i).map(x=>`<span class="series-pill c-${x.c}"><span class="emo">${x.emoji}</span><span class="txt">${esc(x.label)}</span>`+
+        `<button data-rmrow="${i.id}" data-id="${x.id}" title="Remove from ${esc(x.label)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 6l12 12M18 6L6 18"/></svg></button></span>`).join('')
+    }${seriesAddSelect(chosen,'')
+        .replace('<select id="">',`<select data-addrow="${i.id}">`)}</div></td>
     <td class="tight">${i.date?dueHTML(i):'<span style="color:var(--ink-3)">—</span>'}</td>
     <td class="tight"><div style="display:flex;align-items:center;gap:7px"><div class="progress-track" style="width:52px;margin:0"><div class="progress-fill" style="width:${prog}%"></div></div><span style="font-size:12.5px;color:var(--ink-3);font-variant-numeric:tabular-nums">${prog}%</span></div></td>
   </tr>`;
@@ -1446,8 +1479,8 @@ function seriesDetail(x, list){
 }
 
 function planOverview(list){
-  const loose = list.filter(i=>!i.series);
-  const peak = Math.max(1, ...SERIES.map(x=>list.filter(i=>(i.series||'')===x.id).length));
+  const loose = list.filter(i=>inSeries(i,''));
+  const peak = Math.max(1, ...SERIES.map(x=>list.filter(i=>inSeries(i,x.id)).length));
   const rows = SERIES.map(x=>planRow(x,list,peak)).join('')
     + (loose.length?planRow(UNSORTED,list,peak):'');
   const note = loose.length
@@ -1477,13 +1510,20 @@ function renderPlan(){
   const jump=content.querySelector('[data-jump="unfiled"]');
   if(jump) jump.onclick=()=>{ filterSeries=''; render(); };
   // detail rows
-  content.querySelectorAll('select[data-refile]').forEach(selEl=>{
+  content.querySelectorAll('select[data-addrow]').forEach(selEl=>{
     selEl.onchange=e=>{
-      const i=ideas.find(y=>y.id===selEl.dataset.refile);
-      if(!i) return;
-      i.series=e.target.value; touch(i); save(); render();
-      toast(i.series?`Filed under ${SER[i.series].label}`:'Moved out of its series');
+      const i=ideas.find(y=>y.id===selEl.dataset.addrow);
+      if(!i||!e.target.value) return;
+      setSeries(i,[...seriesIds(i), e.target.value]);
+      save(); render(); toast(`Added to ${SER[e.target.value].label}`);
     };
+  });
+  content.querySelectorAll('button[data-rmrow]').forEach(b=>b.onclick=e=>{
+    e.stopPropagation();
+    const i=ideas.find(y=>y.id===b.dataset.rmrow);
+    if(!i) return;
+    setSeries(i, seriesIds(i).filter(id=>id!==b.dataset.id));
+    save(); render(); toast(`Removed from ${SER[b.dataset.id].label}`);
   });
   content.querySelectorAll('tr.prow[data-id]').forEach(r=>r.onclick=e=>{
     if(e.target.closest('[data-stop]')) return;   // the refile dropdown is not a row click
@@ -1512,9 +1552,9 @@ function renderCalendar(){
     if(day<1||day>dim){grid+=`<div class="cal-day blank"></div>`;continue}
     const key=`${y}-${String(m+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
     const chips=(byDate[key]||[]).map(i=>{
-      const ser=serOf(i), st=S[i.status]||S.idea;
+      const ser=serOf(i), st=S[i.status]||S.idea, filed=!inSeries(i,'');
       // colour by series so a month reads as a content mix at a glance
-      return `<button class="cal-chip c-${i.series?ser.c:st.c}" data-id="${i.id}" title="${esc(i.title)||'Untitled'} · ${st.label}">${i.series?ser.emoji:st.emoji} ${esc(i.title)||'Untitled'}</button>`;
+      return `<button class="cal-chip c-${filed?ser.c:st.c}" data-id="${i.id}" title="${esc(i.title)||'Untitled'} · ${st.label}">${filed?ser.emoji:st.emoji} ${esc(i.title)||'Untitled'}</button>`;
     }).join('') + (byDeal[key]||[]).map(d=>{
       const st=D[d.stage]||D.lead;
       return `<button class="cal-chip deal c-${st.c}" data-deal="${d.id}" title="${esc(d.brand)||'Deal'} · ${st.label}">🤝 ${esc(d.brand)||'Deal'}</button>`;
@@ -1699,10 +1739,14 @@ function wireCards(){
 }
 
 /* ---- drag & drop: the drop target sets whichever property we group by ---- */
-let dragId=null;
+let dragId=null, dragFrom=null;
 function wireDnD(){
   content.querySelectorAll('.card').forEach(c=>{
-    c.addEventListener('dragstart',e=>{dragId=c.dataset.id;c.classList.add('dragging');e.dataTransfer.effectAllowed='move'});
+    c.addEventListener('dragstart',e=>{
+      dragId=c.dataset.id;
+      dragFrom=(c.closest('.col-body')||{}).dataset ? c.closest('.col-body').dataset.group : null;
+      c.classList.add('dragging');e.dataTransfer.effectAllowed='move';
+    });
     c.addEventListener('dragend',()=>{dragId=null;c.classList.remove('dragging');content.querySelectorAll('.col-body').forEach(b=>b.classList.remove('drop'))});
   });
   content.querySelectorAll('.col-body').forEach(body=>{
@@ -1714,9 +1758,14 @@ function wireDnD(){
       if(!idea) return;
       const key = body.dataset.group;
       if(groupBy==='series'){
-        if((idea.series||'')===key) return;
-        idea.series=key; touch(idea); save(); render();
-        toast(key?`Filed under ${SER[key].label}`:'Moved out of its series');
+        if(dragFrom===key) return;
+        // dragging A→B moves it: the column you left is dropped, the one you entered is added
+        const next = seriesIds(idea).filter(id=>id!==dragFrom);
+        setSeries(idea, key ? [...next, key] : []);
+        save(); render();
+        toast(key
+          ? (dragFrom ? `Moved to ${SER[key].label}` : `Filed under ${SER[key].label}`)
+          : 'Taken out of every playlist');
       }else{
         if(idea.status===key) return;
         idea.status=key;
@@ -1845,7 +1894,7 @@ function closeEditor(){
 }
 
 function buildEditor(i){
-  const st=S[i.status], fmt=FORMATS[i.format]||FORMATS.long, ser=serOf(i);
+  const st=S[i.status], fmt=FORMATS[i.format]||FORMATS.long;
   $('#statusChipHead').innerHTML=`<span class="status-chip c-${st.c}">${dot(st.c)}${st.label}</span>`;
   const prog=progressOf(i);
   $('#panelBody').innerHTML = `
@@ -1855,10 +1904,7 @@ function buildEditor(i){
     </div>
 
     <div class="prop-grid">
-      ${prow('series','Series', pillSel('seriesSel',
-        i.series?seriesPill(ser):'<span class="empty-val">Pick a playlist…</span>',
-        `<option value="">${UNSORTED.label}</option>`+
-        SERIES.map(x=>`<option value="${x.id}" ${x.id===i.series?'selected':''}>${x.emoji} ${x.label}</option>`).join('')))}
+      ${prow('series','Series','<div class="series-edit" id="seriesEdit"></div>')}
       ${prow('status','Stage', pillSel('statusSel',
         `<span class="status-chip c-${st.c}">${dot(st.c)}${st.label}</span>`,
         STATUSES.map(x=>`<option value="${x.id}" ${x.id===i.status?'selected':''}>${x.label}</option>`).join('')))}
@@ -1872,7 +1918,8 @@ function buildEditor(i){
       ${i.status==='published'?prow('link','YouTube link',`<input class="prop" id="videoInput" placeholder="https://youtube.com/watch?v=…" value="${esc(i.video||'')}" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false">`):''}
     </div>
     ${i.status==='published'?'<div id="videoPreview"></div>':''}
-    ${i.series?`<div class="video-hint" style="margin-top:10px">Fits this series: ${esc(ser.fits)}</div>`:''}
+    ${seriesOf(i).length?`<div class="video-hint" style="margin-top:10px">${
+      seriesOf(i).map(x=>`<b style="font-weight:500;color:var(--ink-2)">${esc(x.label)}</b> — ${esc(x.fits)}`).join('<br>')}</div>`:''}
 
     <div class="field">
       <div class="field-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>The hook</div>
@@ -1914,7 +1961,7 @@ function buildEditor(i){
   grow(hk,62);
   // status/format
   $('#statusSel').onchange=e=>{i.status=e.target.value;if(i.status==='published')i.checklist.forEach(c=>c.done=true);touch(i);save();buildEditor(i);render()};
-  $('#seriesSel').onchange=e=>{i.series=e.target.value;touch(i);save();buildEditor(i);render()};
+  buildSeriesPicker(i);
   // youtube link (published only)
   const vi=$('#videoInput');
   if(vi){
@@ -1944,6 +1991,34 @@ function videoPreview(i){
       <img src="${thumb}" alt="Video thumbnail">
       <span class="watch"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13a1 1 0 001.54.84l10-6.5a1 1 0 000-1.68l-10-6.5A1 1 0 008 5.5z"/></svg>Watch on YouTube</span>
     </a>` : (i.video ? `<div class="video-hint">Hmm, that doesn't look like a YouTube link yet</div>` : '');
+}
+
+// pills you can remove, plus a "+ Add" that lists the playlists not yet picked
+function seriesAddSelect(chosen, id){
+  const left = SERIES.filter(x=>!chosen.includes(x.id));
+  if(!left.length) return '';
+  return `<label class="add-pill">+ ${chosen.length?'Add':'Pick a playlist'}
+    <select id="${id}"><option value="">${chosen.length?'Add a playlist…':'Pick a playlist…'}</option>
+    ${left.map(x=>`<option value="${x.id}">${x.emoji} ${x.label}</option>`).join('')}</select>
+  </label>`;
+}
+function buildSeriesPicker(i){
+  const wrap=$('#seriesEdit'); if(!wrap) return;
+  const chosen=seriesIds(i);
+  wrap.innerHTML = seriesOf(i).map(x=>
+    `<span class="series-pill c-${x.c}"><span class="emo">${x.emoji}</span><span class="txt">${esc(x.label)}</span>` +
+    `<button data-rm="${x.id}" title="Remove from ${esc(x.label)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 6l12 12M18 6L6 18"/></svg></button></span>`
+  ).join('') + seriesAddSelect(chosen,'seriesAdd');
+  wrap.querySelectorAll('button[data-rm]').forEach(b=>b.onclick=()=>{
+    setSeries(i, chosen.filter(id=>id!==b.dataset.rm));
+    save(); buildEditor(i); render();
+  });
+  const add=$('#seriesAdd');
+  if(add) add.onchange=e=>{
+    if(!e.target.value) return;
+    setSeries(i, [...chosen, e.target.value]);
+    save(); buildEditor(i); render();
+  };
 }
 
 function buildTags(i){
@@ -2136,8 +2211,10 @@ function newDeal(stage){
 
 /* ================= ACTIONS ================= */
 function newIdea(status,series){
+  const seed = Array.isArray(series) ? series
+             : (typeof series==='string' ? [series] : (filterSeries?[filterSeries]:[]));
   const i={id:uid(),title:'',hook:'',status:status||'idea',
-    series: typeof series==='string' ? series : (filterSeries||''),
+    series: seed.filter(id=>SER[id]),
     format:'long',tags:[],notes:'',date:'',
     checklist:DEFAULT_CHECK.map(t=>({t,done:false})),created:Date.now(),updated:Date.now()};
   ideas.unshift(i);
@@ -2204,7 +2281,7 @@ $('#dupBtn').onclick=()=>{
 $('#exportBtn').onclick=()=>{
   let md = '# YouTube Ideas\n\n'+ideas.map(i=>{
     const st=S[i.status].label;const done=i.checklist.filter(c=>c.done).length;
-    return `## ${stEmoji(i)} ${i.title||'Untitled'}\n- **Series:** ${serOf(i).label}\n- **Status:** ${st} · **Format:** ${(FORMATS[i.format]||{}).label}\n- **Tags:** ${(i.tags||[]).join(', ')||'—'}\n- **Hook:** ${i.hook||'—'}\n${i.date?`- **Target date:** ${i.date}\n`:''}${i.video?`- **Video:** ${i.video}\n`:''}- **Progress:** ${done}/${i.checklist.length}\n${i.packTitles?`- **Title ideas:** ${i.packTitles.split('\n').filter(Boolean).join(' / ')}\n`:''}${i.packThumb?`- **Thumbnail:** ${i.packThumb}\n`:''}${i.notes?'\n'+i.notes+'\n':''}`;
+    return `## ${stEmoji(i)} ${i.title||'Untitled'}\n- **Series:** ${seriesOf(i).map(x=>x.label).join(', ')||'—'}\n- **Status:** ${st} · **Format:** ${(FORMATS[i.format]||{}).label}\n- **Tags:** ${(i.tags||[]).join(', ')||'—'}\n- **Hook:** ${i.hook||'—'}\n${i.date?`- **Target date:** ${i.date}\n`:''}${i.video?`- **Video:** ${i.video}\n`:''}- **Progress:** ${done}/${i.checklist.length}\n${i.packTitles?`- **Title ideas:** ${i.packTitles.split('\n').filter(Boolean).join(' / ')}\n`:''}${i.packThumb?`- **Thumbnail:** ${i.packThumb}\n`:''}${i.notes?'\n'+i.notes+'\n':''}`;
   }).join('\n---\n\n');
   if(deals.length){
     md += '\n\n# Brand partnerships\n\n' + deals.map(d=>{
@@ -2439,7 +2516,7 @@ $('#importFile').onchange=e=>{
       const clean=d.filter(x=>x&&typeof x==='object').map(x=>({
         id:String(x.id||uid()), title:String(x.title||''), hook:String(x.hook||''),
         status:S[x.status]?x.status:(STATUS_REMAP[x.status]||'idea'),
-        series:SER[x.series]?x.series:(SERIES_REMAP[x.series]||''),
+        series:x.series,   // normalised by migrateIdea below
         format:FORMATS[x.format]?x.format:'long',
         tags:Array.isArray(x.tags)?x.tags.map(String):[],
         notes:String(x.notes||''), date:String(x.date||''), video:String(x.video||''),
@@ -2468,6 +2545,7 @@ $('#importFile').onchange=e=>{
       ideas.forEach(x=>{ if(!kept.has(x.id)) deletedMap[x.id]=Date.now(); });
       const keptDeals=new Set(cleanDeals.map(x=>x.id));
       deals.forEach(x=>{ if(!keptDeals.has(x.id)) dealsDeleted[x.id]=Date.now(); });
+      clean.forEach(migrateIdea);   // normalises series (legacy single id -> list) and stages
       ideas=clean; deals=cleanDeals; save(); render(); toast(`Imported ${what} ✓`);
     }catch(err){ toast("Couldn't read that file — is it an Idea Studio backup?"); }
   };
