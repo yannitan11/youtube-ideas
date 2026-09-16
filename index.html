@@ -275,6 +275,8 @@ a.brand-sub:hover{color:var(--accent)}
 .format-pill svg{width:11px;height:11px}
 .series-pill .emo{font-size:11px}
 .series-pill .txt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.series-pill .txt.link{cursor:pointer;text-decoration:underline;text-decoration-color:transparent;text-underline-offset:2px;transition:text-decoration-color .12s}
+.series-pill .txt.link:hover{text-decoration-color:currentColor}
 .series-pill button{opacity:.5;display:grid;place-items:center;width:13px;height:13px;border-radius:50%;flex-shrink:0;margin-left:1px}
 .series-pill button:hover{opacity:1}
 .series-pill button svg{width:10px;height:10px}
@@ -1130,6 +1132,12 @@ function siteLabel(u){
   catch(e){ return (u||'').replace(/^https?:\/\//i,'').replace(/^www\./,'').split('/')[0] }
 }
 function dealsForIdea(id){ return deals.filter(d=>d.ideaId===id && d.stage!=='passed'); }
+function linkedDeals(id){ return deals.filter(d=>d.ideaId===id); }
+// one line summing up the commercial side of a deal: what it is and what you get
+function dealSummary(d){
+  return [DT[d.type], CT[d.comp], feeLabel(d).tbd?null:feeLabel(d).text]
+    .filter(Boolean).join(' · ');
+}
 
 /* ================= RENDER ================= */
 const $ = s => document.querySelector(s);
@@ -1192,7 +1200,10 @@ function filtered(){
     if(filterSeries!==null && !inSeries(i,filterSeries)) return false;
     if(query){
       const q=query.toLowerCase();
-      return (i.title+' '+i.hook+' '+i.notes+' '+(i.packTitles||'')+' '+(i.packThumb||'')+' '+(i.tags||[]).join(' ')).toLowerCase().includes(q);
+      const brands = linkedDeals(i.id).map(d=>d.brand).join(' ');
+      const playlists = seriesOf(i).map(x=>x.label).join(' ');
+      return (i.title+' '+i.hook+' '+i.notes+' '+(i.packTitles||'')+' '+(i.packThumb||'')+' '+
+        (i.tags||[]).join(' ')+' '+brands+' '+playlists).toLowerCase().includes(q);
     }
     return true;
   });
@@ -1340,7 +1351,9 @@ function renderTable(){
       const st=S[i.status], fmt=FORMATS[i.format]||FORMATS.long, prog=progressOf(i);
       const tags=(i.tags||[]).map(t=>`<span class="tag c-${tagCls(t)}">${esc(t)}</span>`).join(' ')||'<span style="color:var(--ink-3)">—</span>';
       return `<tr data-id="${i.id}">
-        <td><div class="t-title">${stEmoji(i)} ${esc(i.title)||'Untitled'}</div>${i.hook?`<div class="t-hook">${esc(i.hook)}</div>`:''}</td>
+        <td><div class="t-title">${stEmoji(i)} ${esc(i.title)||'Untitled'}${
+          dealsForIdea(i.id)[0]?` <span class="brandpill">🤝 ${esc(dealsForIdea(i.id)[0].brand)||'Partnership'}</span>`:''
+        }</div>${i.hook?`<div class="t-hook">${esc(i.hook)}</div>`:''}</td>
         <td><div class="pill-stack">${seriesPills(i)||'<span style="color:var(--ink-3)">—</span>'}</div></td>
         <td><span class="status-chip c-${st.c}">${dot(st.c)}${st.label}</span></td>
         <td><span class="format-pill c-${fmt.c}"><svg viewBox="0 0 24 24" fill="currentColor"><path d="${fmt.icon}"/></svg>${fmt.label}</span></td>
@@ -1366,7 +1379,9 @@ function renderGallery(){
       <div class="gcard-body">
         <div class="card-title">${esc(i.title)||'Untitled'}</div>
         ${i.hook?`<div class="card-hook">${esc(i.hook)}</div>`:''}
-        <div class="card-meta">${seriesPills(i)}${tags}</div>
+        <div class="card-meta">${seriesPills(i)}${
+          dealsForIdea(i.id)[0]?`<span class="brandpill">🤝 ${esc(dealsForIdea(i.id)[0].brand)||'Partnership'}</span>`:''
+        }${tags}</div>
       </div>
     </div>`;
   }).join('')}</div>`;
@@ -1908,6 +1923,7 @@ function buildEditor(i){
       ${prow('status','Stage', pillSel('statusSel',
         `<span class="status-chip c-${st.c}">${dot(st.c)}${st.label}</span>`,
         STATUSES.map(x=>`<option value="${x.id}" ${x.id===i.status?'selected':''}>${x.label}</option>`).join('')))}
+      ${prow('box','Partnership','<div class="series-edit" id="dealEdit"></div>')}
       ${prow('format','Format', pillSel('formatSel',
         `<span class="format-pill c-${fmt.c}"><svg viewBox="0 0 24 24" fill="currentColor"><path d="${fmt.icon}"/></svg>${fmt.label}</span>`,
         Object.entries(FORMATS).map(([k,f])=>`<option value="${k}" ${k===i.format?'selected':''}>${f.label}</option>`).join('')))}
@@ -1918,6 +1934,12 @@ function buildEditor(i){
       ${i.status==='published'?prow('link','YouTube link',`<input class="prop" id="videoInput" placeholder="https://youtube.com/watch?v=…" value="${esc(i.video||'')}" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false">`):''}
     </div>
     ${i.status==='published'?'<div id="videoPreview"></div>':''}
+    ${linkedDeals(i.id).length?`<div class="video-hint" style="margin-top:10px">${
+      linkedDeals(i.id).map(d=>{
+        const sum=dealSummary(d);
+        return `🤝 <b style="font-weight:500;color:var(--ink-2)">${esc(d.brand)||'Untitled deal'}</b> — ${
+          (D[d.stage]||D.lead).label}${sum?' · '+esc(sum):' · nothing agreed yet'}`;
+      }).join('<br>')}</div>`:''}
     ${seriesOf(i).length?`<div class="video-hint" style="margin-top:10px">${
       seriesOf(i).map(x=>`<b style="font-weight:500;color:var(--ink-2)">${esc(x.label)}</b> — ${esc(x.fits)}`).join('<br>')}</div>`:''}
 
@@ -1961,7 +1983,7 @@ function buildEditor(i){
   grow(hk,62);
   // status/format
   $('#statusSel').onchange=e=>{i.status=e.target.value;if(i.status==='published')i.checklist.forEach(c=>c.done=true);touch(i);save();buildEditor(i);render()};
-  buildSeriesPicker(i);
+  buildSeriesPicker(i); buildDealLink(i);
   // youtube link (published only)
   const vi=$('#videoInput');
   if(vi){
@@ -1991,6 +2013,43 @@ function videoPreview(i){
       <img src="${thumb}" alt="Video thumbnail">
       <span class="watch"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13a1 1 0 001.54.84l10-6.5a1 1 0 000-1.68l-10-6.5A1 1 0 008 5.5z"/></svg>Watch on YouTube</span>
     </a>` : (i.video ? `<div class="video-hint">Hmm, that doesn't look like a YouTube link yet</div>` : '');
+}
+
+// is this video sponsored / gifted, and by whom — links to the real deal record
+// rather than storing a second, disagreeing copy of the brand name on the idea
+function buildDealLink(i){
+  const wrap=$('#dealEdit'); if(!wrap) return;
+  const linked=linkedDeals(i.id);
+  const free=deals.filter(d=>!d.ideaId);
+  wrap.innerHTML = linked.map(d=>{
+    const st=D[d.stage]||D.lead;
+    return `<span class="series-pill c-${st.c}"><span class="emo">🤝</span>` +
+      `<span class="txt link" data-open="${d.id}" title="Open this partnership">${esc(d.brand)||'Untitled deal'}</span>` +
+      `<button data-unlink="${d.id}" title="Unlink from this idea"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 6l12 12M18 6L6 18"/></svg></button></span>`;
+  }).join('') + `<label class="add-pill">+ ${linked.length?'Another brand':'Sponsored or gifted?'}
+    <select id="dealLinkAdd">
+      <option value="">${linked.length?'Link another deal…':'Not a paid video'}</option>
+      <option value="__new">＋ New partnership…</option>
+      ${free.map(d=>`<option value="${d.id}">${esc(d.brand)||'Untitled deal'}</option>`).join('')}
+    </select>
+  </label>`;
+  wrap.querySelectorAll('[data-open]').forEach(el=>el.onclick=()=>openDeal(el.dataset.open));
+  wrap.querySelectorAll('button[data-unlink]').forEach(b=>b.onclick=()=>{
+    const d=deals.find(x=>x.id===b.dataset.unlink);
+    if(!d) return;
+    d.ideaId=''; touch(d); save(); buildEditor(i); render();
+    toast(`${d.brand||'Deal'} unlinked`);
+  });
+  const add=$('#dealLinkAdd');
+  if(add) add.onchange=e=>{
+    const v=e.target.value;
+    if(!v) return;
+    if(v==='__new'){ newDeal('lead', i.id, true); return; }
+    const d=deals.find(x=>x.id===v);
+    if(!d) return;
+    d.ideaId=i.id; touch(d); save(); buildEditor(i); render();
+    toast(`Linked to ${d.brand||'that deal'}`);
+  };
 }
 
 // pills you can remove, plus a "+ Add" that lists the playlists not yet picked
@@ -2200,12 +2259,13 @@ function dealProgUI(d){
   if(l) l.textContent=p+'%';
 }
 
-function newDeal(stage){
+function newDeal(stage, ideaId, stay){
   const d={id:uid(),brand:'',contact:'',stage:stage||'lead',type:'',category:'',comp:'',fee:'',commission:'',
-    first:dkey(new Date()),due:'',site:'',ideaId:'',brief:'',notes:'',
+    first:dkey(new Date()),due:'',site:'',ideaId:ideaId||'',brief:'',notes:'',
     checklist:DEFAULT_DELIV.map(t=>({t,done:false})),created:Date.now(),updated:Date.now()};
   deals.unshift(d); save();
-  if(page!=='deals'){ page='deals'; dealFilter=null; persistView(); }
+  // started from an idea, so don't drag the whole app over to Partnerships
+  if(!stay && page!=='deals'){ page='deals'; dealFilter=null; persistView(); }
   render(); openDeal(d.id);
 }
 
