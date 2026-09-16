@@ -407,6 +407,25 @@ tbody td{padding:8px 10px;vertical-align:middle}
 .plan-bar{height:4px;border-radius:20px;background:var(--tint-2);overflow:hidden;margin-top:7px;max-width:290px;margin-left:23px}
 .plan-bar i{display:block;height:100%;border-radius:20px}
 
+/* Plan sub-tabs + per-series detail */
+.subtabs{
+  display:flex;flex-wrap:wrap;align-items:center;gap:2px;
+  margin-bottom:16px;padding-bottom:10px;border-bottom:1px solid var(--line);
+}
+.subtabs .emo{font-size:12px;line-height:1}
+.plan-sec{margin-bottom:24px}
+.plan-sec:last-child{margin-bottom:0}
+.plan-sec-head{
+  display:flex;align-items:center;gap:7px;font-size:13px;font-weight:500;
+  color:var(--ink-2);margin-bottom:7px;padding:0 2px;
+}
+.plan-sec-head .n{font-size:12px;color:var(--ink-3);font-variant-numeric:tabular-nums;font-weight:450}
+.plan-sec-empty{font-size:13.5px;color:var(--ink-3);padding:8px 2px 2px}
+.row-title{font-weight:450;letter-spacing:-.005em;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.plan-table td.tight{padding:5px 10px}
+.plan-table .pill-sel{margin:-3px -5px}
+.plan-table.rows{min-width:660px}
+
 /* ============ EMPTY ============ */
 .empty{display:grid;place-items:center;height:100%;text-align:center;min-height:280px}
 .empty-inner{max-width:330px}
@@ -1131,7 +1150,6 @@ function statusNav(){
 // any sidebar filter click lands you back on the ideas page
 function goIdeas(){
   page='ideas';
-  if(view==='plan') view='board';   // a filter is about seeing the ideas, not the overview
   persistView();
   render(); closeNavMobile();
 }
@@ -1150,12 +1168,15 @@ function filtered(){
 
 function statLine(cards){
   $('#stats').innerHTML = cards.map(c=>
-    `<span class="stat"><span class="stat-spark">${c.e}</span><span class="stat-val">${c.v}</span><span class="stat-label">${c.l}</span></span>`
+    `<span class="stat"><span class="stat-spark">${c.e}</span>${
+      c.pre?`<span class="stat-label">${c.pre}</span>`:''
+    }<span class="stat-val">${c.v}</span>${c.l?`<span class="stat-label">${c.l}</span>`:''}</span>`
   ).join('');
 }
+const plural = (n,one,many) => n===1 ? one : many;
 function renderDealStats(){
   statLine([
-    {v:dealsInStages(LIVE_STAGES).length, l:'live', e:'🤝'},
+    {v:dealsInStages(LIVE_STAGES).length, l:plural(dealsInStages(LIVE_STAGES).length,'live deal','live'), e:'🤝'},
     {v:money(sumFees(dealsInStages(['lead','talking']))), l:'in conversation', e:'💬'},
     {v:money(sumFees(dealsInStages(['confirmed','delivered','invoiced']))), l:'owed to you', e:'🧾'},
     {v:money(sumFees(dealsInStages(['paid']))), l:'paid to date', e:'💰'},
@@ -1163,14 +1184,23 @@ function renderDealStats(){
 }
 function renderStats(){
   if(page==='deals') return renderDealStats();
-  const inProd = ideas.filter(i=>i.status!=='published' && i.status!=='idea').length;
-  statLine([
-    {v:ideas.length, l:'ideas', e:'💡'},
-    {v:ideas.filter(i=>i.status==='idea').length, l:'sparks', e:'✨'},
-    {v:inProd, l:'in production', e:'🎬'},
-    {v:ideas.filter(i=>i.status==='published').length, l:'published', e:'🚀'},
-    {v:ideas.filter(i=>!i.series).length, l:'unfiled', e:'🗂'},
-  ]);
+  // a series filter scopes the numbers; otherwise they're the whole channel
+  const scoped = filterSeries!==null;
+  const list = scoped ? ideas.filter(i=>(i.series||'')===filterSeries) : ideas;
+  const posted = list.filter(i=>i.status==='published');
+  const cards = [
+    {v:list.length, l:plural(list.length,'idea','ideas'), e:'💡'},
+    {v:list.filter(i=>i.status==='idea').length, l:plural(list.filter(i=>i.status==='idea').length,'spark','sparks'), e:'✨'},
+    {v:list.filter(i=>i.status!=='published' && i.status!=='idea').length, l:'in production', e:'🎬'},
+    {v:posted.length, l:'published', e:'🚀'},
+  ];
+  if(scoped){
+    const last = posted.map(i=>i.date).filter(Boolean).sort().pop();
+    if(last) cards.push({pre:'last out', v:relDays(daysSince(last),last), e:'🕗'});
+  }else{
+    cards.push({v:ideas.filter(i=>!i.series).length, l:'unfiled', e:'🗂'});
+  }
+  statLine(cards);
 }
 
 function progressOf(i){
@@ -1359,8 +1389,62 @@ function planRow(x, list, peak){
   </tr>`;
 }
 
-function renderPlan(){
-  const list = filtered();
+// the Plan tab's own sub-tab row — All, then one per playlist
+function planSubtabs(){
+  const loose = ideas.filter(i=>!i.series).length;
+  const chip=(key,label,emoji,n,active)=>
+    `<button class="chip-filter${active?' active':''}${n?'':' zero'}" data-tab="${esc(key)}">${
+      emoji?`<span class="emo">${emoji}</span>`:''}${esc(label)} <span class="n">${n}</span></button>`;
+  return `<div class="subtabs">
+    ${chip('all','All','',ideas.length,filterSeries===null)}
+    ${SERIES.map(x=>chip(x.id,x.label,x.emoji,ideas.filter(i=>i.series===x.id).length,filterSeries===x.id)).join('')}
+    ${loose?chip('none',UNSORTED.label,UNSORTED.emoji,loose,filterSeries===''):''}
+  </div>`;
+}
+
+// one row per idea inside a series tab — the Series cell refiles without opening the editor
+function planIdeaRow(i){
+  const st=S[i.status]||S.idea, prog=progressOf(i), ser=serOf(i);
+  return `<tr class="prow" data-id="${i.id}">
+    <td class="tight"><span class="row-title">${stEmoji(i)} ${esc(i.title)||'Untitled'}</span></td>
+    <td class="tight"><span class="status-chip c-${st.c}">${dot(st.c)}${st.label}</span></td>
+    <td class="tight" data-stop><div class="pill-sel">${
+        i.series?seriesPill(ser):'<span class="empty-val">Unfiled</span>'
+      }<select data-refile="${i.id}">
+        <option value="">${UNSORTED.label}</option>
+        ${SERIES.map(x=>`<option value="${x.id}" ${x.id===i.series?'selected':''}>${x.emoji} ${x.label}</option>`).join('')}
+      </select></div></td>
+    <td class="tight">${i.date?dueHTML(i):'<span style="color:var(--ink-3)">—</span>'}</td>
+    <td class="tight"><div style="display:flex;align-items:center;gap:7px"><div class="progress-track" style="width:52px;margin:0"><div class="progress-fill" style="width:${prog}%"></div></div><span style="font-size:12.5px;color:var(--ink-3);font-variant-numeric:tabular-nums">${prog}%</span></div></td>
+  </tr>`;
+}
+
+function planSection(title, items, emptyCopy){
+  return `<div class="plan-sec">
+    <div class="plan-sec-head">${title} <span class="n">${items.length}</span></div>
+    ${items.length
+      ? `<div class="tablewrap scrollhide"><table class="plan-table rows"><thead><tr>
+          <th style="width:40%">Idea</th><th style="width:120px">Stage</th><th style="width:186px">Series</th><th style="width:106px">Target</th><th style="width:104px">Done</th>
+        </tr></thead><tbody>${items.map(planIdeaRow).join('')}</tbody></table></div>`
+      : `<div class="plan-sec-empty">${emptyCopy}</div>`}
+  </div>`;
+}
+
+// what a single playlist looks like: what's planned, then what's already out
+function seriesDetail(x, list){
+  const planned = list.filter(i=>i.status!=='published')
+    .sort((a,b)=>(a.date||'~').localeCompare(b.date||'~')||b.created-a.created);
+  const posted = list.filter(i=>i.status==='published')
+    .sort((a,b)=>(b.date||'').localeCompare(a.date||'')||b.created-a.created);
+  return planSection('Planned', planned, x.id
+        ? `Nothing in the pipe for ${esc(x.label)} yet — start one and it shows up here.`
+        : 'Nothing unfiled is still in production.')
+    + planSection('Published', posted, x.id
+        ? `Nothing published under ${esc(x.label)} yet.`
+        : 'Nothing unfiled has been published.');
+}
+
+function planOverview(list){
   const loose = list.filter(i=>!i.series);
   const peak = Math.max(1, ...SERIES.map(x=>list.filter(i=>(i.series||'')===x.id).length));
   const rows = SERIES.map(x=>planRow(x,list,peak)).join('')
@@ -1368,208 +1452,48 @@ function renderPlan(){
   const note = loose.length
     ? `<div class="plan-note"><span class="ico">🗂</span><div><b>${loose.length} idea${loose.length>1?'s aren\u2019t':' isn\u2019t'} filed into a series yet.</b>
         Give each one a playlist and it starts counting toward that series&rsquo; cadence.
-        <button data-jump="unfiled">Show them →</button></div></div>`
+        <button data-jump="unfiled">File them →</button></div></div>`
     : `<div class="plan-note"><span class="ico">✅</span><div><b>Every idea is filed.</b>
         Each row below is one playlist &mdash; what&rsquo;s in the pipe, what ships next, and how long since that series last went live.</div></div>`;
-
-  content.innerHTML = note + `<div class="tablewrap scrollhide"><table class="plan-table"><thead><tr>
+  return note + `<div class="tablewrap scrollhide"><table class="plan-table"><thead><tr>
       <th style="width:32%">Series</th><th>In the pipe</th><th style="width:200px">Next up</th><th style="width:130px">Last published</th><th style="width:64px"></th>
     </tr></thead><tbody>${rows}</tbody></table></div>`;
+}
 
-  content.querySelectorAll('.plan-name[data-open]').forEach(el=>el.onclick=()=>{
-    filterSeries=el.dataset.open; view='board'; persistView(); render();
+function renderPlan(){
+  const list = filtered();
+  const detail = filterSeries!==null;
+  const x = detail ? (filterSeries===''?UNSORTED:SER[filterSeries]) : null;
+  content.innerHTML = planSubtabs() + (detail ? seriesDetail(x,list) : planOverview(list));
+
+  // sub-tabs drive the same filter the sidebar does, so the two never disagree
+  content.querySelectorAll('.chip-filter[data-tab]').forEach(b=>b.onclick=()=>{
+    const t=b.dataset.tab;
+    filterSeries = t==='all' ? null : (t==='none' ? '' : t);
+    render();
   });
-  content.querySelectorAll('.plan-add[data-new]').forEach(b=>b.onclick=e=>{
+  // overview
+  content.querySelectorAll('.plan-name[data-open]').forEach(el=>el.onclick=()=>{
+    filterSeries=el.dataset.open; render();
+  });
+  content.querySelectorAll('.plan-add[data-new], .btn-primary[data-new]').forEach(b=>b.onclick=e=>{
     e.stopPropagation(); newIdea('idea', b.dataset.new);
   });
   const jump=content.querySelector('[data-jump="unfiled"]');
-  if(jump) jump.onclick=()=>{ filterSeries=''; view='table'; persistView(); render(); };
-}
-
-let calBase = (()=>{const d=new Date();return new Date(d.getFullYear(),d.getMonth(),1)})();
-function dkey(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
-
-function renderCalendar(){
-  const y=calBase.getFullYear(), m=calBase.getMonth();
-  const byDate={}, byDeal={};
-  filtered().forEach(i=>{ if(i.date){(byDate[i.date]=byDate[i.date]||[]).push(i)} });
-  filteredDeals().forEach(d=>{ if(d.due&&d.stage!=='passed'){(byDeal[d.due]=byDeal[d.due]||[]).push(d)} });
-  const startOffset=(new Date(y,m,1).getDay()+6)%7; // Monday-first
-  const dim=new Date(y,m+1,0).getDate();
-  const todayKey=dkey(new Date());
-  const cells=Math.ceil((startOffset+dim)/7)*7;
-  const monthName=calBase.toLocaleDateString('en-US',{month:'long',year:'numeric'});
-  const dated=Object.values(byDate).flat().length+Object.values(byDeal).flat().length;
-
-  let grid=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d=>`<div class="cal-dow">${d}</div>`).join('');
-  for(let c=0;c<cells;c++){
-    const day=c-startOffset+1;
-    if(day<1||day>dim){grid+=`<div class="cal-day blank"></div>`;continue}
-    const key=`${y}-${String(m+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
-    const chips=(byDate[key]||[]).map(i=>{
-      const ser=serOf(i), st=S[i.status]||S.idea;
-      // colour by series so a month reads as a content mix at a glance
-      return `<button class="cal-chip c-${i.series?ser.c:st.c}" data-id="${i.id}" title="${esc(i.title)||'Untitled'} · ${st.label}">${i.series?ser.emoji:st.emoji} ${esc(i.title)||'Untitled'}</button>`;
-    }).join('') + (byDeal[key]||[]).map(d=>{
-      const st=D[d.stage]||D.lead;
-      return `<button class="cal-chip deal c-${st.c}" data-deal="${d.id}" title="${esc(d.brand)||'Deal'} · ${st.label}">🤝 ${esc(d.brand)||'Deal'}</button>`;
-    }).join('');
-    grid+=`<div class="cal-day${key===todayKey?' today':''}"><span class="cal-num">${day}</span>${chips}</div>`;
-  }
-
-  content.innerHTML=`
-    <div class="cal-head">
-      <button class="cal-nav" id="calPrev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 6l-6 6 6 6"/></svg></button>
-      <div class="cal-title">${monthName}</div>
-      <button class="cal-nav" id="calNext"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 6l6 6-6 6"/></svg></button>
-      <button class="cal-today-btn" id="calToday">Today</button>
-      <span class="cal-hint">${dated===0?"Set a target date on an idea — or a deadline on a deal — and it'll land here":'Chips are coloured by series'}</span>
-    </div>
-    <div class="cal-scroll scrollhide"><div class="cal-grid">${grid}</div></div>`;
-  $('#calPrev').onclick=()=>{calBase=new Date(y,m-1,1);render()};
-  $('#calNext').onclick=()=>{calBase=new Date(y,m+1,1);render()};
-  $('#calToday').onclick=()=>{const d=new Date();calBase=new Date(d.getFullYear(),d.getMonth(),1);render()};
-  content.querySelectorAll('.cal-chip[data-id]').forEach(c=>c.onclick=()=>openEditor(c.dataset.id));
-  content.querySelectorAll('.cal-chip[data-deal]').forEach(c=>c.onclick=()=>openDeal(c.dataset.deal));
-}
-
-/* ================= PARTNERSHIPS ================= */
-function filteredDeals(){
-  if(!query) return deals;
-  const q=query.toLowerCase();
-  return deals.filter(d=>{
-    const idea = d.ideaId ? ideas.find(i=>i.id===d.ideaId) : null;
-    const hay = [d.brand,d.contact,d.brief,d.notes,DT[d.type],PT[d.category],CT[d.comp],idea&&idea.title,(d.checklist||[]).map(c=>c.t).join(' ')].filter(Boolean).join(' ');
-    return hay.toLowerCase().includes(q);
+  if(jump) jump.onclick=()=>{ filterSeries=''; render(); };
+  // detail rows
+  content.querySelectorAll('select[data-refile]').forEach(selEl=>{
+    selEl.onchange=e=>{
+      const i=ideas.find(y=>y.id===selEl.dataset.refile);
+      if(!i) return;
+      i.series=e.target.value; touch(i); save(); render();
+      toast(i.series?`Filed under ${SER[i.series].label}`:'Moved out of its series');
+    };
   });
-}
-
-function dealCardHTML(d){
-  const st=D[d.stage]||D.lead;
-  const prog=progressOf(d);
-  const idea=d.ideaId ? ideas.find(i=>i.id===d.ideaId) : null;
-  const settled = d.stage==='paid'||d.stage==='passed';
-  const fl=feeLabel(d);
-  return `<div class="dcard" data-id="${d.id}" draggable="true">
-    <div class="dcard-top">
-      <div class="mono c-${st.c}">${esc(initials(d.brand))}</div>
-      <div style="min-width:0">
-        <div class="dcard-brand">${esc(d.brand)||'Untitled deal'}</div>
-        ${d.contact?`<div class="dcard-contact">${esc(d.contact)}</div>`:''}
-      </div>
-      <div class="dcard-fee${fl.tbd?' tbd':''}">${fl.text}</div>
-    </div>
-    ${(d.type||d.category||d.comp==='gifted')?`<div class="dcard-tags">
-      ${d.type&&DT[d.type]?`<span class="dpill">${DT[d.type]}</span>`:''}
-      ${d.comp==='gifted'?`<span class="dpill">Unpaid</span>`:''}
-      ${d.category&&PT[d.category]?`<span class="dpill cat">${PT[d.category]}</span>`:''}
-    </div>`:''}
-    ${d.brief?`<div class="dcard-deliv">${esc(d.brief)}</div>`:''}
-    ${(d.due||d.first||idea||(prog>0&&prog<100))?`<div class="dcard-foot">
-      ${d.due?dateChip(d.due,settled):(d.first?`<span class="due" title="They reached out on ${esc(d.first)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3.5 7l8.5 6 8.5-6"/></svg>Since ${fmtDate(d.first)}</span>`:'')}
-      ${prog>0&&prog<100?`<span class="prog"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>${prog}%</span>`:''}
-      ${idea?`<span class="linked"><svg viewBox="0 0 24 24" fill="currentColor" style="width:11px;height:11px"><path d="M8 5.5v13a1 1 0 001.54.84l10-6.5a1 1 0 000-1.68l-10-6.5A1 1 0 008 5.5z"/></svg>${esc(idea.title)||'Untitled'}</span>`:''}
-      ${d.site?`<a class="linked site" href="${esc(siteHref(d.site))}" target="_blank" rel="noopener" draggable="false" title="${esc(siteHref(d.site))}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:11px;height:11px"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18"/></svg>${esc(siteLabel(d.site))}</a>`:''}
-    </div>`:''}
-  </div>`;
-}
-
-function renderDeals(){
-  const matched = filteredDeals();
-  const shown = dealFilter ? matched.filter(d=>d.stage===dealFilter) : matched;
-
-  const chips = [`<button class="chip-filter${dealFilter===null?' active':''}" data-stage="">All <span class="n">${matched.length}</span></button>`]
-    .concat(DEAL_STAGES.map(st=>{
-      const n=matched.filter(d=>d.stage===st.id).length;
-      return `<button class="chip-filter${dealFilter===st.id?' active':''}${n?'':' zero'}" data-stage="${st.id}">${dot(st.c)}${st.label} <span class="n">${n}</span></button>`;
-    })).join('');
-
-  const curPick = `<label class="cur-pick">Amounts in
-    <select id="curSel">${Object.keys(CURRENCIES).map(c=>`<option value="${c}" ${c===currency?'selected':''}>${c}</option>`).join('')}</select>
-  </label>`;
-
-  let body;
-  if(!deals.length){
-    body = `<div class="empty" style="height:auto;padding:48px 0"><div class="empty-inner">
-      <div class="empty-emoji">🤝</div>
-      <h3>No partnerships yet</h3>
-      <p>Track every brand deal from first email to paid — the fee, what you owe them, when it's due, and which video it lives in.</p>
-      <button class="btn-primary" style="margin:0 auto" onclick="newDeal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg>New deal</button>
-    </div></div>`;
-  } else if(!shown.length){
-    body = `<div class="empty" style="height:auto;padding:48px 0"><div class="empty-inner">
-      <div class="empty-emoji">🔎</div>
-      <h3>Nothing here</h3>
-      <p>${query?'No partnership matches that search.':'No deals sitting in this stage right now.'}</p>
-    </div></div>`;
-  } else {
-    body = DEAL_STAGES.map(st=>{
-      const items = shown.filter(d=>d.stage===st.id)
-        .sort((a,b)=>(a.due||'~').localeCompare(b.due||'~')||b.created-a.created);
-      const sum=sumFees(items);
-      // empty stages stay hidden until a card is picked up, so there's always somewhere to drop
-      return `<div class="deal-group${items.length?'':' vacant'}" data-stage="${st.id}">
-        <div class="deal-group-head">
-          ${dot(st.c)}
-          <span class="deal-group-title">${st.label}</span>
-          <span class="col-count">${items.length}</span>
-          ${sum?`<span class="deal-group-sum">${money(sum)}</span>`:''}
-        </div>
-        ${items.length
-          ? `<div class="dealgrid">${items.map(dealCardHTML).join('')}</div>`
-          : `<div class="deal-drop">Drop here to move it to ${st.label}</div>`}
-      </div>`;
-    }).join('');
-  }
-
-  content.innerHTML = `<div class="deal-toolbar">${chips}${curPick}</div>${body}`;
-  content.querySelectorAll('.chip-filter').forEach(b=>b.onclick=()=>{dealFilter=b.dataset.stage||null;render()});
-  const cs=$('#curSel');
-  if(cs) cs.onchange=e=>{currency=e.target.value;localStorage.setItem('yt-currency',currency);render()};
-  content.querySelectorAll('.dcard').forEach(c=>c.onclick=()=>{ if(!dealDragId&&!c.classList.contains('dragging')) openDeal(c.dataset.id) });
-  content.querySelectorAll('a.linked.site').forEach(a=>a.onclick=e=>e.stopPropagation());
-  wireDealDnD();
-}
-
-/* ---- drag a deal between stages ---- */
-let dealDragId=null;
-function wireDealDnD(){
-  content.querySelectorAll('.dcard').forEach(c=>{
-    c.addEventListener('dragstart',e=>{
-      dealDragId=c.dataset.id;
-      c.classList.add('dragging');
-      document.body.classList.add('dragging-deal');
-      e.dataTransfer.effectAllowed='move';
-      try{ e.dataTransfer.setData('text/plain',c.dataset.id) }catch(_){}
-    });
-    c.addEventListener('dragend',()=>{
-      c.classList.remove('dragging');
-      endDealDrag();
-    });
+  content.querySelectorAll('tr.prow[data-id]').forEach(r=>r.onclick=e=>{
+    if(e.target.closest('[data-stop]')) return;   // the refile dropdown is not a row click
+    openEditor(r.dataset.id);
   });
-  content.querySelectorAll('.deal-group').forEach(g=>{
-    g.addEventListener('dragover',e=>{
-      if(!dealDragId) return;
-      e.preventDefault(); e.dataTransfer.dropEffect='move';
-      g.classList.add('drop');
-    });
-    g.addEventListener('dragleave',e=>{ if(!g.contains(e.relatedTarget)) g.classList.remove('drop') });
-    g.addEventListener('drop',e=>{
-      e.preventDefault(); g.classList.remove('drop');
-      const d=deals.find(x=>x.id===dealDragId);
-      const stage=g.dataset.stage;
-      endDealDrag();
-      if(d && D[stage] && d.stage!==stage){
-        d.stage=stage; touch(d); save(); render();
-        toast(`${d.brand||'Deal'} \u2192 ${D[stage].label}`);
-      }
-    });
-  });
-}
-function endDealDrag(){
-  dealDragId=null;
-  document.body.classList.remove('dragging-deal');
-  content.querySelectorAll('.deal-group.drop').forEach(g=>g.classList.remove('drop'));
 }
 
 function renderEmpty(){
@@ -2026,7 +1950,6 @@ function newIdea(status,series){
     checklist:DEFAULT_CHECK.map(t=>({t,done:false})),created:Date.now(),updated:Date.now()};
   ideas.unshift(i);
   if(page!=='ideas'){ page='ideas'; persistView(); }
-  if(view==='plan'){ view='board'; persistView(); }
   save(); render(); openEditor(i.id);
 }
 function queueSave(i){
