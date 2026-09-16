@@ -915,13 +915,14 @@ const SERIES = [
   {id:'daily',   label:'daily diaries',          emoji:'☕',  c:'orange', fits:'everyday vlogs, weekends, routines, errands, friends, slow days'},
   {id:'travel',  label:'travel diaries',         emoji:'✈️', c:'blue',   fits:'overseas trips, city vlogs, weekend getaways, travel days'},
   {id:'hauls',   label:'hauls & finds',          emoji:'🛍️', c:'pink',   fits:'travel hauls, Muji hauls, stationery, fashion, beauty, recent purchases'},
-  {id:'loving',  label:'things i’ve been loving',emoji:'💌', c:'red',    fits:'monthly/recent favourites, books, bags, beauty, tech, places'},
+  {id:'loving',  label:'things i’ve been loving',emoji:'💌', c:'red',    fits:'monthly/recent favourites, what’s in my bag, books, bags, beauty, tech, places'},
   {id:'slow',    label:'slow productivity',      emoji:'🌿', c:'green',  fits:'Japanese learning, study routines, morning routines, no-scroll routines, planning'},
   {id:'journal', label:'journal diaries',        emoji:'📓', c:'brown',  fits:'journal setups, Paper Republic, journaling sessions, planning systems'},
-  {id:'bag',     label:'what’s in my bag',       emoji:'👜', c:'purple', fits:'bag contents, travel bag, everyday bag, bag collection'},
   {id:'reading', label:'reading diaries',        emoji:'📖', c:'yellow', fits:'reading vlogs, Kobo, book-related videos'},
 ];
 const SER = Object.fromEntries(SERIES.map(x=>[x.id,x]));
+// playlists that got folded into another one — keep the ideas, move the label
+const SERIES_REMAP = {bag:'loving'};
 const UNSORTED = {id:'', label:'No series yet', emoji:'🗂', c:'gray', fits:'Ideas you haven’t filed into a playlist yet'};
 const serOf = i => SER[i.series] || UNSORTED;
 
@@ -1018,18 +1019,19 @@ let openId = null;
 let openKind = 'idea';
 let saveTimer = null;
 
+// map statuses and series from removed stages/playlists onto the current ones
+const STATUS_REMAP = {research:'idea', film:'video'};
+function migrateIdea(x){
+  if(!x||typeof x!=='object') return x;
+  if(!S[x.status]) x.status = STATUS_REMAP[x.status] || 'idea';
+  if(typeof x.series!=='string') x.series='';
+  else if(x.series && !SER[x.series]) x.series = SERIES_REMAP[x.series] || '';
+  return x;
+}
 function load(){
   try{
     const d = JSON.parse(localStorage.getItem('yt-ideas-v2'));
-    if(Array.isArray(d)){
-      // map any statuses from removed pipeline stages onto current ones
-      const remap = {research:'idea', film:'video'};
-      d.forEach(i=>{
-        if(!S[i.status]) i.status = remap[i.status] || 'idea';
-        if(typeof i.series!=='string' || (i.series && !SER[i.series])) i.series = '';
-      });
-      return d;
-    }
+    if(Array.isArray(d)){ d.forEach(migrateIdea); return d; }
   }catch(e){}
   return [];
 }
@@ -2180,6 +2182,7 @@ async function syncNow(){
     ideas=m.ideas; deletedMap=m.deleted;
     const md=mergeBoards(deals,dealsDeleted,remote.deals,remote.dealsDeleted);
     deals=md.ideas; dealsDeleted=md.deleted;
+    ideas.forEach(migrateIdea);
     deals.forEach(migrateDeal);
     localStorage.setItem('yt-ideas-v2',JSON.stringify(ideas));
     localStorage.setItem('yt-deleted',JSON.stringify(deletedMap));
@@ -2318,11 +2321,10 @@ $('#importFile').onchange=e=>{
       const d = Array.isArray(parsed) ? parsed : (parsed&&Array.isArray(parsed.ideas) ? parsed.ideas : null);
       const rawDeals = (parsed&&Array.isArray(parsed.deals)) ? parsed.deals : [];
       if(!d) throw new Error('not a board');
-      const remap={research:'idea',film:'video'};
       const clean=d.filter(x=>x&&typeof x==='object').map(x=>({
         id:String(x.id||uid()), title:String(x.title||''), hook:String(x.hook||''),
-        status:S[x.status]?x.status:(remap[x.status]||'idea'),
-        series:SER[x.series]?x.series:'',
+        status:S[x.status]?x.status:(STATUS_REMAP[x.status]||'idea'),
+        series:SER[x.series]?x.series:(SERIES_REMAP[x.series]||''),
         format:FORMATS[x.format]?x.format:'long',
         tags:Array.isArray(x.tags)?x.tags.map(String):[],
         notes:String(x.notes||''), date:String(x.date||''), video:String(x.video||''),
