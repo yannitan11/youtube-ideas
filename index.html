@@ -441,6 +441,16 @@ tbody td{padding:8px 10px;vertical-align:middle}
 .plan-table td.tight{padding:5px 10px}
 .plan-table .pill-sel{margin:-3px -5px}
 .plan-table.rows{min-width:660px}
+.prow .grip{
+  display:inline-block;width:15px;margin-left:-5px;text-align:left;
+  color:var(--ink-3);opacity:.22;cursor:grab;user-select:none;transition:opacity .1s;
+}
+.prow:hover .grip{opacity:.65}
+.prow .grip:active{cursor:grabbing}
+.prow[data-move]{cursor:default}
+.prow.dragging{opacity:.4}
+.prow.dropabove td{box-shadow:inset 0 2px 0 var(--accent)}
+.prow.dropbelow td{box-shadow:inset 0 -2px 0 var(--accent)}
 
 /* playlist picker popover — type to filter, type to create, pencil to rename */
 .sm-scrim{position:fixed;inset:0;z-index:70}
@@ -1106,6 +1116,22 @@ const inSeries  = (i,id) => id==='' ? !seriesOf(i).length : seriesIds(i).include
 // surfaces that can only carry one colour/emoji use the first one
 const serOf = i => seriesOf(i)[0] || UNSORTED;
 const seriesPills = i => seriesOf(i).map(x=>seriesPill(x)).join('');
+// manual running order. Fractional, so a drag rewrites one idea instead of the
+// whole list — which keeps sync merges quiet.
+const ordOf = i => Number.isFinite(i.ord) ? i.ord : (i.created||0);
+const byDateThenNew = (a,b)=>(a.date||'~').localeCompare(b.date||'~')||b.created-a.created;
+const byOrd = (a,b)=>ordOf(a)-ordOf(b)||byDateThenNew(a,b);
+// first run (and anything arriving from an older device) gets an ord without reshuffling
+function ensureOrds(list){
+  const missing=list.filter(i=>!Number.isFinite(i.ord));
+  if(!missing.length) return;
+  if(missing.length===list.length){
+    [...list].sort(byDateThenNew).forEach((i,k)=>{ i.ord=k; });
+  }else{
+    const max=Math.max(...list.filter(i=>Number.isFinite(i.ord)).map(i=>i.ord));
+    missing.sort(byDateThenNew).forEach((i,k)=>{ i.ord=max+1+k; });
+  }
+}
 function setSeries(i,ids){
   i.series=[...new Set(ids.filter(id=>SER[id]))];
   touch(i);
@@ -1229,7 +1255,7 @@ function migrateIdea(x){
 function load(){
   try{
     const d = JSON.parse(localStorage.getItem('yt-ideas-v2'));
-    if(Array.isArray(d)){ d.forEach(migrateIdea); return d; }
+    if(Array.isArray(d)){ d.forEach(migrateIdea); ensureOrds(d); return d; }
   }catch(e){}
   return [];
 }
@@ -1469,7 +1495,7 @@ function renderBoard(){
   const board = $('#board');
   boardGroups().forEach(g=>{
     const items = list.filter(g.match)
-      .sort((a,b)=>(a.date||'~').localeCompare(b.date||'~')||b.created-a.created);
+      .sort((a,b)=>(a.date||'~').localeCompare(b.date||'~')||ordOf(a)-ordOf(b));
     const col = document.createElement('div');
     col.className='column'; col.dataset.group=g.key;
     col.innerHTML = `<div class="col-head">
@@ -1491,7 +1517,7 @@ function renderBoard(){
 function renderTable(){
   const list = filtered();
   if(!list.length){ return renderEmpty(); }
-  const sorted=[...list].sort((a,b)=>(a.date||'~').localeCompare(b.date||'~')||b.created-a.created);
+  const sorted=[...list].sort((a,b)=>(a.date||'~').localeCompare(b.date||'~')||ordOf(a)-ordOf(b));
   content.innerHTML = `<div class="tablewrap scrollhide"><table><thead><tr>
       <th style="width:34%">Idea</th><th>Series</th><th>Stage</th><th>Format</th><th>Target</th><th>Tags</th><th>Done</th>
     </tr></thead><tbody>${sorted.map(i=>{
@@ -1600,10 +1626,10 @@ function planSubtabs(){
 }
 
 // one row per idea inside a series tab — the Series cell refiles without opening the editor
-function planIdeaRow(i){
+function planIdeaRow(i, movable){
   const st=S[i.status]||S.idea, prog=progressOf(i), chosen=seriesIds(i);
-  return `<tr class="prow" data-id="${i.id}">
-    <td class="tight"><span class="row-title">${stEmoji(i)} ${esc(i.title)||'Untitled'}</span></td>
+  return `<tr class="prow"${movable?' data-move="1" draggable="true"':''} data-id="${i.id}">
+    <td class="tight"><span class="row-title">${movable?'<span class="grip" title="Drag to reorder">⠿</span>':''}${stEmoji(i)} ${esc(i.title)||'Untitled'}</span></td>
     <td class="tight"><span class="status-chip c-${st.c}">${dot(st.c)}${st.label}</span></td>
     <td class="tight" data-stop><div class="series-edit">${
       seriesOf(i).map(x=>`<span class="series-pill c-${x.c}"><span class="emo">${x.emoji}</span><span class="txt">${esc(x.label)}</span>`+
@@ -1614,29 +1640,75 @@ function planIdeaRow(i){
   </tr>`;
 }
 
-function planSection(title, items, emptyCopy){
+function planSection(title, items, emptyCopy, movable){
   return `<div class="plan-sec">
     <div class="plan-sec-head">${title} <span class="n">${items.length}</span></div>
     ${items.length
       ? `<div class="tablewrap scrollhide"><table class="plan-table rows"><thead><tr>
           <th style="width:40%">Idea</th><th style="width:120px">Stage</th><th style="width:186px">Series</th><th style="width:106px">Target</th><th style="width:104px">Done</th>
-        </tr></thead><tbody>${items.map(planIdeaRow).join('')}</tbody></table></div>`
+        </tr></thead><tbody>${items.map(i=>planIdeaRow(i,movable)).join('')}</tbody></table></div>`
       : `<div class="plan-sec-empty">${emptyCopy}</div>`}
   </div>`;
 }
 
 // what a single playlist looks like: what's planned, then what's already out
+// the running order you arrange by hand; Published stays newest-first, it's a record
+function plannedList(){ return filtered().filter(i=>i.status!=='published').sort(byOrd); }
 function seriesDetail(x, list){
-  const planned = list.filter(i=>i.status!=='published')
-    .sort((a,b)=>(a.date||'~').localeCompare(b.date||'~')||b.created-a.created);
+  const planned = list.filter(i=>i.status!=='published').sort(byOrd);
   const posted = list.filter(i=>i.status==='published')
     .sort((a,b)=>(b.date||'').localeCompare(a.date||'')||b.created-a.created);
   return planSection('Planned', planned, x.id
         ? `Nothing in the pipe for ${esc(x.label)} yet — start one and it shows up here.`
-        : 'Nothing unfiled is still in production.')
+        : 'Nothing unfiled is still in production.', true)
     + planSection('Published', posted, x.id
         ? `Nothing published under ${esc(x.label)} yet.`
         : 'Nothing unfiled has been published.');
+}
+
+/* ---------- drag a Planned row into the order you want ---------- */
+let rowDrag=null;
+function clearRowMarks(){
+  content.querySelectorAll('.dropabove,.dropbelow').forEach(r=>r.classList.remove('dropabove','dropbelow'));
+}
+function wirePlanReorder(){
+  content.querySelectorAll('tr.prow[data-move]').forEach(r=>{
+    r.addEventListener('dragstart',e=>{
+      rowDrag=r.dataset.id; r.classList.add('dragging');
+      e.dataTransfer.effectAllowed='move';
+      try{ e.dataTransfer.setData('text/plain',r.dataset.id) }catch(_){}
+    });
+    r.addEventListener('dragend',()=>{ rowDrag=null; r.classList.remove('dragging'); clearRowMarks(); });
+    r.addEventListener('dragover',e=>{
+      if(!rowDrag||r.dataset.id===rowDrag) return;
+      e.preventDefault(); e.dataTransfer.dropEffect='move';
+      const b=r.getBoundingClientRect();
+      const below=(e.clientY-b.top)>b.height/2;
+      clearRowMarks();
+      r.classList.add(below?'dropbelow':'dropabove');
+    });
+    r.addEventListener('drop',e=>{
+      if(!rowDrag||r.dataset.id===rowDrag) return;
+      e.preventDefault();
+      const after=r.classList.contains('dropbelow');
+      const id=rowDrag; rowDrag=null; clearRowMarks();
+      moveIdeaNextTo(id, r.dataset.id, after);
+    });
+  });
+}
+// give the dragged idea an ord between its new neighbours — one write, not a renumber
+function moveIdeaNextTo(dragId, targetId, after){
+  const moved=ideas.find(i=>i.id===dragId);
+  if(!moved||dragId===targetId) return;
+  const list=plannedList().filter(i=>i.id!==dragId);
+  let at=list.findIndex(i=>i.id===targetId);
+  if(at<0) return;
+  if(after) at++;
+  const before=list[at-1], next=list[at];
+  moved.ord = !before ? ordOf(next)-1
+            : !next   ? ordOf(before)+1
+            : (ordOf(before)+ordOf(next))/2;
+  touch(moved); save(); render();
 }
 
 function planOverview(list){
@@ -1685,8 +1757,10 @@ function renderPlan(){
   });
   content.querySelectorAll('tr.prow[data-id]').forEach(r=>r.onclick=e=>{
     if(e.target.closest('[data-stop]')) return;   // the refile dropdown is not a row click
+    if(r.classList.contains('dragging')) return;
     openEditor(r.dataset.id);
   });
+  wirePlanReorder();
 }
 
 let calBase = (()=>{const d=new Date();return new Date(d.getFullYear(),d.getMonth(),1)})();
@@ -2530,7 +2604,8 @@ function newDeal(stage, ideaId, stay){
 function newIdea(status,series){
   const seed = Array.isArray(series) ? series
              : (typeof series==='string' ? [series] : (filterSeries?[filterSeries]:[]));
-  const i={id:uid(),title:'',hook:'',status:status||'idea',
+  const minOrd = ideas.length ? Math.min(...ideas.map(ordOf)) : 0;
+  const i={id:uid(),title:'',hook:'',status:status||'idea',ord:minOrd-1,
     series: seed.filter(id=>SER[id]),
     format:'long',tags:[],notes:'',date:'',
     checklist:DEFAULT_CHECK.map(t=>({t,done:false})),created:Date.now(),updated:Date.now()};
@@ -2697,7 +2772,7 @@ async function syncNow(){
       const ms=mergeBoards(SERIES,seriesDeleted,cleanSeries(remote.series),remote.seriesDeleted);
       SERIES=cleanSeries(ms.ideas); seriesDeleted=ms.deleted; indexSeries();
     }
-    ideas.forEach(migrateIdea);
+    ideas.forEach(migrateIdea); ensureOrds(ideas);
     deals.forEach(migrateDeal);
     localStorage.setItem('yt-series-v1',JSON.stringify(SERIES));
     localStorage.setItem('yt-series-deleted',JSON.stringify(seriesDeleted));
@@ -2877,7 +2952,7 @@ $('#importFile').onchange=e=>{
         SERIES.forEach(x=>{ if(!kept.has(x.id)) seriesDeleted[x.id]=Date.now(); });
         SERIES=cleanSeries(parsed.series); indexSeries();
       }
-      clean.forEach(migrateIdea);   // normalises series (legacy single id -> list) and stages
+      clean.forEach(migrateIdea); ensureOrds(clean);
       ideas=clean; deals=cleanDeals; save(); render(); toast(`Imported ${what} ✓`);
     }catch(err){ toast("Couldn't read that file — is it an Idea Studio backup?"); }
   };
