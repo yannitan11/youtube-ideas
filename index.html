@@ -382,6 +382,8 @@ tbody td{padding:8px 10px;vertical-align:middle}
   padding:3px 6px;border-radius:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   transition:filter .1s;
 }
+.cal-chip .t,.cal-chip .b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cal-chip .b{font-size:10.5px;opacity:.72;margin-top:1px;font-weight:500}
 .cal-chip:hover{filter:brightness(.96)}
 :root[data-theme="dark"] .cal-chip:hover{filter:brightness(1.18)}
 
@@ -1568,8 +1570,14 @@ function renderCalendar(){
     const key=`${y}-${String(m+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
     const chips=(byDate[key]||[]).map(i=>{
       const ser=serOf(i), st=S[i.status]||S.idea, filed=!inSeries(i,'');
-      // colour by series so a month reads as a content mix at a glance
-      return `<button class="cal-chip c-${filed?ser.c:st.c}" data-id="${i.id}" title="${esc(i.title)||'Untitled'} · ${st.label}">${filed?ser.emoji:st.emoji} ${esc(i.title)||'Untitled'}</button>`;
+      const brands=dealsForIdea(i.id).map(d=>d.brand||'Partnership').join(' · ');
+      // colour by series so a month reads as a content mix at a glance;
+      // a sponsored shoot gets the brand on a second line, so a paid month is obvious
+      return `<button class="cal-chip c-${filed?ser.c:st.c}" data-id="${i.id}" title="${
+          esc(i.title)||'Untitled'} · ${st.label}${brands?' · 🤝 '+esc(brands):''}">`+
+        `<span class="t">${filed?ser.emoji:st.emoji} ${esc(i.title)||'Untitled'}</span>`+
+        (brands?`<span class="b">🤝 ${esc(brands)}</span>`:'')+
+        `</button>`;
     }).join('') + (byDeal[key]||[]).map(d=>{
       const st=D[d.stage]||D.lead;
       return `<button class="cal-chip deal c-${st.c}" data-deal="${d.id}" title="${esc(d.brand)||'Deal'} · ${st.label}">🤝 ${esc(d.brand)||'Deal'}</button>`;
@@ -1583,7 +1591,7 @@ function renderCalendar(){
       <div class="cal-title">${monthName}</div>
       <button class="cal-nav" id="calNext"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 6l6 6-6 6"/></svg></button>
       <button class="cal-today-btn" id="calToday">Today</button>
-      <span class="cal-hint">${dated===0?"Set a target date on an idea — or a deadline on a deal — and it'll land here":'Chips are coloured by series'}</span>
+      <span class="cal-hint">${dated===0?"Set a target date on an idea — or a deadline on a deal — and it'll land here":'Coloured by series · 🤝 marks a paid video'}</span>
     </div>
     <div class="cal-scroll scrollhide"><div class="cal-grid">${grid}</div></div>`;
   $('#calPrev').onclick=()=>{calBase=new Date(y,m-1,1);render()};
