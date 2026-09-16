@@ -395,6 +395,8 @@ tbody td{padding:8px 10px;vertical-align:middle}
 }
 .cal-chip .t,.cal-chip .b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cal-chip .b{font-size:10.5px;opacity:.72;margin-top:1px;font-weight:500}
+.cal-chip.out{opacity:.72}
+.cal-chip.out:hover{opacity:1}
 .cal-chip:hover{filter:brightness(.96)}
 :root[data-theme="dark"] .cal-chip:hover{filter:brightness(1.18)}
 
@@ -1429,6 +1431,19 @@ function renderStats(){
   statLine(cards);
 }
 
+// moving to Published finishes the checklist and, if no date was set, stamps today —
+// so a video that has gone out lands on the calendar without extra bookkeeping
+function setStatus(i, next){
+  if(!S[next] || i.status===next) return false;
+  i.status=next;
+  if(next==='published'){
+    (i.checklist||[]).forEach(c=>c.done=true);
+    if(!i.date) i.date=dkey(new Date());
+  }
+  touch(i);
+  return true;
+}
+
 function progressOf(i){
   const c=i.checklist||[]; if(!c.length) return 0;
   return Math.round(c.filter(x=>x.done).length/c.length*100);
@@ -1805,9 +1820,10 @@ function renderCalendar(){
       const brands=dealsForIdea(i.id).map(d=>d.brand||'Partnership').join(' · ');
       // colour by series so a month reads as a content mix at a glance;
       // a sponsored shoot gets the brand on a second line, so a paid month is obvious
-      return `<button class="cal-chip c-${filed?ser.c:st.c}" data-id="${i.id}" title="${
+      const out = i.status==='published';
+      return `<button class="cal-chip c-${filed?ser.c:st.c}${out?' out':''}" data-id="${i.id}" title="${
           esc(i.title)||'Untitled'} · ${st.label}${brands?' · 🤝 '+esc(brands):''}">`+
-        `<span class="t">${filed?ser.emoji:st.emoji} ${esc(i.title)||'Untitled'}</span>`+
+        `<span class="t">${out?st.emoji:(filed?ser.emoji:st.emoji)} ${esc(i.title)||'Untitled'}</span>`+
         (brands?`<span class="b">🤝 ${esc(brands)}</span>`:'')+
         `</button>`;
     }).join('') + (byDeal[key]||[]).map(d=>{
@@ -1826,7 +1842,7 @@ function renderCalendar(){
       <div class="cal-title">${monthName}</div>
       <button class="cal-nav" id="calNext"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 6l6 6-6 6"/></svg></button>
       <button class="cal-today-btn" id="calToday">Today</button>
-      <span class="cal-hint">Click a day to schedule something${dated?' · coloured by series · 🤝 marks a paid video':''}</span>
+      <span class="cal-hint">Click a day to schedule something${dated?' · coloured by series · 🚀 already out · 🤝 paid':''}</span>
     </div>
     <div class="cal-scroll scrollhide"><div class="cal-grid">${grid}</div></div>`;
   $('#calPrev').onclick=()=>{calBase=new Date(y,m-1,1);render()};
@@ -2029,10 +2045,11 @@ function wireDnD(){
           ? (dragFrom ? `Moved to ${SER[key].label}` : `Filed under ${SER[key].label}`)
           : 'Taken out of every playlist');
       }else{
-        if(idea.status===key) return;
-        idea.status=key;
-        if(key==='published') idea.checklist.forEach(c=>c.done=true);
-        touch(idea); save(); render(); toast(`Moved to ${S[key].label}`);
+        if(!setStatus(idea, key)) return;
+        save(); render();
+        toast(key==='published' && idea.date===dkey(new Date())
+          ? `Published — dated today, change it if it went out earlier`
+          : `Moved to ${S[key].label}`);
       }
     });
   });
@@ -2229,7 +2246,12 @@ function buildEditor(i){
   hk.oninput=()=>{i.hook=hk.value;grow(hk,62);queueSave(i)};
   grow(hk,62);
   // status/format
-  $('#statusSel').onchange=e=>{i.status=e.target.value;if(i.status==='published')i.checklist.forEach(c=>c.done=true);touch(i);save();buildEditor(i);render()};
+  $('#statusSel').onchange=e=>{
+    const was=i.date;
+    setStatus(i, e.target.value);
+    save(); buildEditor(i); render();
+    if(i.status==='published' && !was && i.date) toast('Dated today — change it if it went out earlier');
+  };
   buildSeriesPicker(i); buildDealLink(i);
   // youtube link (published only)
   const vi=$('#videoInput');
