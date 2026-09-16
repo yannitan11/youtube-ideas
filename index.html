@@ -1662,15 +1662,22 @@ function planSection(title, items, emptyCopy, movable){
 }
 
 // what a single playlist looks like: what's planned, then what's already out
-// the running order you arrange by hand; Published stays newest-first, it's a record
-function plannedList(){ return filtered().filter(i=>i.status!=='published').sort(byOrd); }
+// Planned is the only hand-arranged list — once something is Scheduled its date
+// is the order, and Published is a record.
+const isPlanned = i => i.status!=='published' && i.status!=='scheduled';
+function plannedList(){ return filtered().filter(isPlanned).sort(byOrd); }
 function seriesDetail(x, list){
-  const planned = list.filter(i=>i.status!=='published').sort(byOrd);
+  const planned = list.filter(isPlanned).sort(byOrd);
+  const booked = list.filter(i=>i.status==='scheduled')
+    .sort((a,b)=>(a.date||'~').localeCompare(b.date||'~')||ordOf(a)-ordOf(b));
   const posted = list.filter(i=>i.status==='published')
     .sort((a,b)=>(b.date||'').localeCompare(a.date||'')||b.created-a.created);
   return planSection('Planned', planned, x.id
         ? `Nothing in the pipe for ${esc(x.label)} yet — start one and it shows up here.`
         : 'Nothing unfiled is still in production.', true)
+    + planSection('Scheduled', booked, x.id
+        ? `Nothing from ${esc(x.label)} has a slot booked yet.`
+        : 'Nothing unfiled is scheduled.')
     + planSection('Published', posted, x.id
         ? `Nothing published under ${esc(x.label)} yet.`
         : 'Nothing unfiled has been published.');
