@@ -376,6 +376,16 @@ tbody td{padding:8px 10px;vertical-align:middle}
   border-right:1px solid var(--line);border-bottom:1px solid var(--line);
 }
 .cal-day.blank{background:var(--tint)}
+.cal-day:not(.blank){position:relative;cursor:pointer}
+.cal-day:not(.blank):hover{background:var(--hover)}
+.cal-day .add-day{
+  position:absolute;top:4px;right:4px;width:19px;height:19px;border-radius:3px;
+  display:grid;place-items:center;color:var(--ink-3);opacity:0;transition:.1s;
+}
+.cal-day:hover .add-day{opacity:.55}
+.cal-day .add-day:hover{opacity:1;background:var(--hover-2);color:var(--ink)}
+.cal-day .add-day svg{width:13px;height:13px}
+.sm-when{font-size:11.5px;color:var(--ink-3);flex-shrink:0;font-variant-numeric:tabular-nums}
 .cal-num{font-size:12px;font-weight:450;color:var(--ink-3);width:22px;height:22px;display:grid;place-items:center;border-radius:50%;margin:1px 0 1px 1px}
 .cal-day.today .cal-num{background:var(--accent);color:#fff;font-weight:600}
 .cal-chip{
@@ -1797,7 +1807,10 @@ function renderCalendar(){
       const st=D[d.stage]||D.lead;
       return `<button class="cal-chip deal c-${st.c}" data-deal="${d.id}" title="${esc(d.brand)||'Deal'} · ${st.label}">🤝 ${esc(d.brand)||'Deal'}</button>`;
     }).join('');
-    grid+=`<div class="cal-day${key===todayKey?' today':''}"><span class="cal-num">${day}</span>${chips}</div>`;
+    grid+=`<div class="cal-day${key===todayKey?' today':''}" data-day="${key}">`+
+      `<span class="cal-num">${day}</span>`+
+      `<button class="add-day" title="Schedule something here"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg></button>`+
+      `${chips}</div>`;
   }
 
   content.innerHTML=`
@@ -1806,12 +1819,16 @@ function renderCalendar(){
       <div class="cal-title">${monthName}</div>
       <button class="cal-nav" id="calNext"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 6l6 6-6 6"/></svg></button>
       <button class="cal-today-btn" id="calToday">Today</button>
-      <span class="cal-hint">${dated===0?"Set a target date on an idea — or a deadline on a deal — and it'll land here":'Coloured by series · 🤝 marks a paid video'}</span>
+      <span class="cal-hint">Click a day to schedule something${dated?' · coloured by series · 🤝 marks a paid video':''}</span>
     </div>
     <div class="cal-scroll scrollhide"><div class="cal-grid">${grid}</div></div>`;
   $('#calPrev').onclick=()=>{calBase=new Date(y,m-1,1);render()};
   $('#calNext').onclick=()=>{calBase=new Date(y,m+1,1);render()};
   $('#calToday').onclick=()=>{const d=new Date();calBase=new Date(d.getFullYear(),d.getMonth(),1);render()};
+  content.querySelectorAll('.cal-day[data-day]').forEach(cell=>cell.onclick=e=>{
+    if(e.target.closest('.cal-chip')) return;   // a chip opens its own thing
+    openDayMenu(e.target.closest('.add-day')||cell, cell.dataset.day);
+  });
   content.querySelectorAll('.cal-chip[data-id]').forEach(c=>c.onclick=()=>openEditor(c.dataset.id));
   content.querySelectorAll('.cal-chip[data-deal]').forEach(c=>c.onclick=()=>openDeal(c.dataset.deal));
 }
@@ -2238,6 +2255,87 @@ function videoPreview(i){
     </a>` : (i.video ? `<div class="video-hint">Hmm, that doesn't look like a YouTube link yet</div>` : '');
 }
 
+/* ---------- click a day, pick what goes there ---------- */
+let dayState=null;
+function closeDayMenu(){
+  if(!dayState) return;
+  dayState.scrim.remove(); dayState.el.remove(); dayState=null;
+  document.removeEventListener('keydown', dayKeys, true);
+}
+function dayKeys(e){ if(e.key==='Escape'){ e.stopPropagation(); closeDayMenu(); } }
+function longDate(key){
+  const d=new Date(key+'T00:00');
+  return isNaN(d) ? key : d.toLocaleDateString('en-US',{weekday:'short',day:'numeric',month:'short'});
+}
+function openDayMenu(anchor, key){
+  closeSeriesMenu(); closeDayMenu();
+  const scrim=document.createElement('div'); scrim.className='sm-scrim';
+  const el=document.createElement('div'); el.className='sm';
+  document.body.append(scrim, el);
+  scrim.onclick=closeDayMenu;
+  document.addEventListener('keydown', dayKeys, true);
+  dayState={el, scrim, key, q:''};
+  const r=anchor.getBoundingClientRect();
+  el.style.left = Math.max(10, Math.min(r.left, innerWidth-280)) + 'px';
+  el.style.top  = Math.min(r.bottom+4, Math.max(10, innerHeight-330)) + 'px';
+  paintDayMenu();
+  const inp=el.querySelector('.sm-search'); if(inp) inp.focus();
+}
+function paintDayMenu(){
+  if(!dayState) return;
+  const {el, key} = dayState;
+  // the shell (and the search box) is built once, so typing never loses the caret
+  if(!el.querySelector('.sm-search')){
+    el.innerHTML =
+      `<input class="sm-search" placeholder="Find an idea…" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false">` +
+      `<div class="sm-hint">Put something on ${esc(longDate(key))}</div>` +
+      `<div class="sm-list"></div>`;
+    const inp=el.querySelector('.sm-search');
+    inp.oninput=e=>{ dayState.q=e.target.value; paintDayMenu(); };
+    inp.onkeydown=e=>{
+      if(e.key!=='Enter') return;
+      e.preventDefault();
+      const sc=dayState.scope||[];
+      if(sc.length) scheduleOnDay(sc[0].id);
+      else if(dayState.q.trim()) newOnDay();
+    };
+  }
+  const q=dayState.q;
+  const term=q.trim().toLowerCase();
+  // things still to go out; unscheduled first, since that's what you're here to place
+  const scope = ideas.filter(i=>i.status!=='published' && i.date!==key)
+    .filter(i=>!term || (i.title||'Untitled').toLowerCase().includes(term))
+    .sort((a,b)=>(a.date?1:0)-(b.date?1:0) || ordOf(a)-ordOf(b));
+  dayState.scope=scope;
+  el.querySelector('.sm-list').innerHTML =
+      `<div class="sm-row create" data-newday="1">＋ New idea on this day</div>` +
+      (scope.length ? scope.map(i=>{
+        const ser=serOf(i);
+        return `<div class="sm-row" data-put="${i.id}">
+          <span class="emo">${!inSeries(i,'')?ser.emoji:stEmoji(i)}</span>
+          <span class="nm">${esc(i.title)||'Untitled'}</span>
+          ${i.date?`<span class="sm-when">${fmtDate(i.date)}</span>`:''}
+        </div>`;
+      }).join('') : `<div class="sm-empty">${term?'Nothing matches that.':'Everything is scheduled already.'}</div>`);
+
+  el.querySelectorAll('[data-put]').forEach(row=>row.onclick=()=>scheduleOnDay(row.dataset.put));
+  el.querySelectorAll('[data-newday]').forEach(b=>b.onclick=newOnDay);
+}
+function scheduleOnDay(id){
+  if(!dayState) return;
+  const i=ideas.find(x=>x.id===id); if(!i) return;
+  const key=dayState.key, moved=!!i.date;
+  i.date=key; touch(i); save(); closeDayMenu(); render();
+  toast(`${i.title||'Untitled'} ${moved?'moved to':'set for'} ${fmtDate(key)}`);
+}
+function newOnDay(){
+  if(!dayState) return;
+  const key=dayState.key, title=dayState.q.trim();
+  closeDayMenu();
+  const i=newIdea('idea', null, key);
+  if(i && title){ i.title=title; touch(i); save(); buildEditor(i); render(); }
+}
+
 /* ---------- playlist picker: type to filter, type to create, pencil to rename ----------
    `idea` may be null, which makes it a plain "manage playlists" menu. */
 let smState=null;
@@ -2267,19 +2365,31 @@ function openSeriesMenu(anchor, idea){
 }
 function paintSeriesMenu(){
   if(!smState) return;
-  const {el, idea, q} = smState;
+  const {el, idea} = smState;
+  if(!el.querySelector('.sm-search')){
+    el.innerHTML =
+      `<input class="sm-search" placeholder="Find or create a playlist…" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false">` +
+      `<div class="sm-hint">${idea?'Click to add · ✎ rename · type a new name to create':'✎ rename · type a new name to create'}</div>` +
+      `<div class="sm-list"></div>`;
+    const inp=el.querySelector('.sm-search');
+    inp.oninput=e=>{ smState.q=e.target.value; smState.renaming=null; paintSeriesMenu(); };
+    inp.onkeydown=e=>{
+      if(e.key!=='Enter') return;
+      e.preventDefault();
+      const t=smState.q.trim();
+      if(!t) return;
+      const sc=smState.match||[];
+      const hit=SERIES.find(x=>x.label.toLowerCase()===t.toLowerCase()) || (sc.length===1?sc[0]:null);
+      if(hit) pickSeriesFromMenu(hit.id); else createFromMenu();
+    };
+  }
+  const q=smState.q;
   const term=q.trim().toLowerCase();
   const on = idea ? seriesIds(idea) : [];
   const match = SERIES.filter(x=>!term || x.label.toLowerCase().includes(term));
   const exact = SERIES.some(x=>x.label.toLowerCase()===term);
-  const keepFocus = document.activeElement===el.querySelector('.sm-search');
-  const caret = keepFocus ? el.querySelector('.sm-search').selectionStart : null;
-
-  el.innerHTML =
-    `<input class="sm-search" placeholder="${idea?'Find or create a playlist…':'Find or create a playlist…'}" value="${esc(q)}"
-       autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false">` +
-    `<div class="sm-hint">${idea?'Click to add · ✎ rename · type a new name to create':'✎ rename · type a new name to create'}</div>` +
-    `<div class="sm-list">` +
+  smState.match=match;
+  el.querySelector('.sm-list').innerHTML =
       (match.length ? match.map(x=>
         smState.renaming===x.id
           ? `<div class="sm-rename"><input data-rename="${x.id}" value="${esc(x.emoji+' '+x.label)}" autocapitalize="off" autocorrect="off" spellcheck="false"></div>`
@@ -2290,21 +2400,7 @@ function paintSeriesMenu(){
                <button class="act" data-del="${x.id}" title="Delete playlist"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13"/></svg></button>
              </div>`
       ).join('') : (term?'':'<div class="sm-empty">No playlists yet.</div>')) +
-      (term && !exact ? `<div class="sm-row create" data-create="1">＋ Create <b>${esc(q.trim())}</b></div>` : '') +
-      (term && !match.length && exact ? '' : '') +
-    `</div>`;
-
-  const inp=el.querySelector('.sm-search');
-  inp.oninput=e=>{ smState.q=e.target.value; smState.renaming=null; paintSeriesMenu(); };
-  inp.onkeydown=e=>{
-    if(e.key!=='Enter') return;
-    e.preventDefault();
-    const t=smState.q.trim();
-    if(!t) return;
-    const hit=SERIES.find(x=>x.label.toLowerCase()===t.toLowerCase()) || (match.length===1?match[0]:null);
-    if(hit) pickSeriesFromMenu(hit.id); else createFromMenu();
-  };
-  if(keepFocus){ inp.focus(); if(caret!=null) try{ inp.setSelectionRange(caret,caret) }catch(_){ } }
+      (term && !exact ? `<div class="sm-row create" data-create="1">＋ Create <b>${esc(q.trim())}</b></div>` : '');
 
   el.querySelectorAll('[data-pick]').forEach(row=>row.onclick=e=>{
     if(e.target.closest('.act')) return;
@@ -2340,7 +2436,8 @@ function createFromMenu(){
   const x=createSeries(smState.q);
   if(!x) return;
   if(smState.idea){ setSeries(smState.idea, [...seriesIds(smState.idea), x.id]); save(); }
-  smState.q=''; paintSeriesMenu(); refreshAfterSeriesChange();
+  smState.q=''; const box=smState.el.querySelector('.sm-search'); if(box) box.value='';
+  paintSeriesMenu(); refreshAfterSeriesChange();
   toast(`Created ${x.emoji} ${x.label}`);
 }
 function pickSeriesFromMenu(id){
@@ -2601,17 +2698,18 @@ function newDeal(stage, ideaId, stay){
 }
 
 /* ================= ACTIONS ================= */
-function newIdea(status,series){
+function newIdea(status,series,date){
   const seed = Array.isArray(series) ? series
              : (typeof series==='string' ? [series] : (filterSeries?[filterSeries]:[]));
   const minOrd = ideas.length ? Math.min(...ideas.map(ordOf)) : 0;
   const i={id:uid(),title:'',hook:'',status:status||'idea',ord:minOrd-1,
     series: seed.filter(id=>SER[id]),
-    format:'long',tags:[],notes:'',date:'',
+    format:'long',tags:[],notes:'',date:date||'',
     checklist:DEFAULT_CHECK.map(t=>({t,done:false})),created:Date.now(),updated:Date.now()};
   ideas.unshift(i);
   if(page!=='ideas'){ page='ideas'; persistView(); }
   save(); render(); openEditor(i.id);
+  return i;
 }
 function queueSave(i){
   if(i) touch(i);
