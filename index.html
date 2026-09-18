@@ -517,6 +517,43 @@ tbody td{padding:8px 10px;vertical-align:middle}
 .nav-label .mini-add:hover{background:var(--hover-2);color:var(--ink)}
 .nav-label .mini-add svg{width:13px;height:13px}
 
+/* to-dos */
+.task-add{
+  display:flex;align-items:center;gap:9px;padding:6px 6px;border-radius:var(--radius);
+  margin-bottom:18px;border:1px solid var(--line);transition:border-color .12s;
+}
+.task-add:focus-within{border-color:var(--line-2);box-shadow:0 0 0 2px var(--accent-soft)}
+.task-add input{flex:1;min-width:0;background:none;border:none;outline:none;font-size:14px;color:var(--ink);padding:3px 0}
+.task-add input::placeholder{color:var(--ink-3)}
+.check-box.ghost{border-style:dashed;cursor:default;flex-shrink:0;margin-left:2px}
+.tlist{display:flex;flex-direction:column}
+.trow{
+  display:flex;align-items:center;gap:9px;padding:7px 6px;border-radius:var(--radius);
+  border-bottom:1px solid var(--line);cursor:pointer;transition:background .1s;
+}
+.trow:last-child{border-bottom:none}
+.trow:hover{background:var(--hover)}
+.tname{flex:1;min-width:0;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.trow.done .tname{color:var(--ink-3);text-decoration:line-through}
+.trow .due{font-size:12.5px;color:var(--ink-3);flex-shrink:0}
+.trow .linked{flex-shrink:0;max-width:200px}
+.trow-x{
+  opacity:0;width:22px;height:22px;border-radius:3px;display:grid;place-items:center;
+  color:var(--ink-3);flex-shrink:0;transition:.1s;
+}
+.trow:hover .trow-x{opacity:.6}
+.trow-x:hover{opacity:1;background:var(--hover-2);color:var(--ink)}
+.trow-x svg{width:12px;height:12px}
+.cal-chip.task{
+  background:transparent;color:var(--ink-2);
+  box-shadow:inset 0 0 0 1px var(--line-2);
+  display:flex;align-items:center;gap:5px;
+}
+.cal-chip.task .tick{flex-shrink:0;font-size:11px;width:11px;text-align:center;opacity:.8}
+.cal-chip.task .tick:hover{opacity:1;color:var(--accent)}
+.cal-chip.task.done{opacity:.55}
+.cal-chip.task.done .t{text-decoration:line-through}
+
 /* ============ EMPTY ============ */
 .empty{display:grid;place-items:center;height:100%;text-align:center;min-height:280px}
 .empty-inner{max-width:330px}
@@ -874,6 +911,9 @@ body.dragging-deal .deal-group.vacant{display:block}
     <div class="nav-label">Workspace</div>
     <button class="nav-item active" data-page="ideas">
       <span class="emo">🎬</span><span class="lbl">Content plan</span><span class="count" id="cnt-board">0</span>
+    </button>
+    <button class="nav-item" data-page="tasks">
+      <span class="emo">✅</span><span class="lbl">To-dos</span><span class="count" id="cnt-tasks">0</span>
     </button>
     <button class="nav-item" data-page="deals">
       <span class="emo">🤝</span><span class="lbl">Partnerships</span><span class="count" id="cnt-deals">0</span>
@@ -1234,6 +1274,22 @@ const DEFAULT_DELIV = ['Agree scope + fee','Contract signed','Film the integrati
 function uid(){return Math.random().toString(36).slice(2,9)}
 
 const readMap = k => {try{const d=JSON.parse(localStorage.getItem(k));return (d&&typeof d==='object')?d:{}}catch(e){return {}}};
+// To-dos are their own record: production chores with a date, not video ideas.
+function migrateTask(x){
+  if(!x||typeof x!=='object') return x;
+  x.title=String(x.title||''); x.date=String(x.date||''); x.notes=String(x.notes||'');
+  x.ideaId=String(x.ideaId||''); x.done=!!x.done;
+  if(!Number.isFinite(x.ord)) x.ord=0;
+  return x;
+}
+function loadTasks(){
+  const d=readList('yt-tasks-v1');
+  if(!d) return [];
+  d.forEach(migrateTask);
+  return d;
+}
+let tasks = [];
+let tasksDeleted = readMap('yt-tasks-deleted');
 let deletedMap = readMap('yt-deleted');
 let dealsDeleted = readMap('yt-deals-deleted');
 let seriesDeleted = readMap('yt-series-deleted');
@@ -1245,6 +1301,7 @@ function saveSeries(){
 }
 let ideas = load();
 let deals = loadDeals();
+tasks = loadTasks();
 let page = localStorage.getItem('yt-page') || 'ideas';   // 'ideas' | 'deals'
 let view = localStorage.getItem('yt-view') || 'plan';     // plan | board | table | gallery | calendar
 let groupBy = localStorage.getItem('yt-groupby') || 'status'; // board grouping: status | series
@@ -1304,6 +1361,8 @@ function loadDeals(){
   return d;
 }
 function save(){
+  localStorage.setItem('yt-tasks-v1', JSON.stringify(tasks));
+  localStorage.setItem('yt-tasks-deleted', JSON.stringify(tasksDeleted));
   localStorage.setItem('yt-series-v1', JSON.stringify(SERIES));
   localStorage.setItem('yt-series-deleted', JSON.stringify(seriesDeleted));
   localStorage.setItem('yt-ideas-v2', JSON.stringify(ideas));
@@ -1313,6 +1372,41 @@ function save(){
   scheduleSync();
 }
 function touch(i){ i.updated=Date.now(); }
+
+/* ---------- to-dos ---------- */
+const openTasks = () => tasks.filter(t=>!t.done);
+const tasksOn   = key => tasks.filter(t=>t.date===key);
+const tasksForIdea = id => tasks.filter(t=>t.ideaId===id);
+function newTask(o={}){
+  const minOrd = tasks.length ? Math.min(...tasks.map(t=>Number.isFinite(t.ord)?t.ord:0)) : 0;
+  const t={id:uid(), title:String(o.title||''), date:String(o.date||''), done:false,
+    notes:'', ideaId:String(o.ideaId||''), ord:minOrd-1, created:Date.now(), updated:Date.now()};
+  tasks.unshift(t); save();
+  return t;
+}
+function toggleTask(id){
+  const t=tasks.find(x=>x.id===id); if(!t) return;
+  t.done=!t.done; touch(t); save(); render();
+}
+// overdue / today / soon / later / someday — also the order they're shown in
+function taskBucket(t){
+  if(t.done) return 'done';
+  if(!t.date) return 'someday';
+  const days = -daysSince(t.date);
+  if(days===null || isNaN(days)) return 'someday';
+  if(days<0) return 'overdue';
+  if(days===0) return 'today';
+  if(days<=7) return 'soon';
+  return 'later';
+}
+const TASK_BUCKETS = [
+  {id:'overdue', label:'Overdue',     c:'red'},
+  {id:'today',   label:'Today',       c:'orange'},
+  {id:'soon',    label:'Next 7 days', c:'blue'},
+  {id:'later',   label:'Later',       c:'purple'},
+  {id:'someday', label:'No date',     c:'gray'},
+  {id:'done',    label:'Done',        c:'green'},
+];
 
 /* ---- money ---- */
 const curSym = () => CURRENCIES[currency] || '';
@@ -1437,6 +1531,7 @@ function renderDealStats(){
   ]);
 }
 function renderStats(){
+  if(page==='tasks') return renderTaskStats();
   if(page==='deals') return renderDealStats();
   // a series filter scopes the numbers; otherwise they're the whole channel
   const scoped = filterSeries!==null;
@@ -1826,15 +1921,16 @@ function dkey(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,
 
 function renderCalendar(){
   const y=calBase.getFullYear(), m=calBase.getMonth();
-  const byDate={}, byDeal={};
+  const byDate={}, byDeal={}, byTask={};
   filtered().forEach(i=>{ if(i.date){(byDate[i.date]=byDate[i.date]||[]).push(i)} });
   filteredDeals().forEach(d=>{ if(d.due&&d.stage!=='passed'){(byDeal[d.due]=byDeal[d.due]||[]).push(d)} });
+  tasks.forEach(t=>{ if(t.date){(byTask[t.date]=byTask[t.date]||[]).push(t)} });
   const startOffset=(new Date(y,m,1).getDay()+6)%7; // Monday-first
   const dim=new Date(y,m+1,0).getDate();
   const todayKey=dkey(new Date());
   const cells=Math.ceil((startOffset+dim)/7)*7;
   const monthName=calBase.toLocaleDateString('en-US',{month:'long',year:'numeric'});
-  const dated=Object.values(byDate).flat().length+Object.values(byDeal).flat().length;
+  const dated=Object.values(byDate).flat().length+Object.values(byDeal).flat().length+Object.values(byTask).flat().length;
 
   let grid=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d=>`<div class="cal-dow">${d}</div>`).join('');
   for(let c=0;c<cells;c++){
@@ -1852,7 +1948,10 @@ function renderCalendar(){
         `<span class="t">${out?st.emoji:(filed?ser.emoji:st.emoji)} ${esc(i.title)||'Untitled'}</span>`+
         (brands?`<span class="b">🤝 ${esc(brands)}</span>`:'')+
         `</button>`;
-    }).join('') + (byDeal[key]||[]).map(d=>{
+    }).join('') + (byTask[key]||[]).map(t=>`<button class="cal-chip task${t.done?' done':''}" data-task="${t.id}" title="${esc(t.title)||'To-do'}">`+
+        `<span class="tick" data-tick="${t.id}">${t.done?'✓':'○'}</span>`+
+        `<span class="t">${esc(t.title)||'To-do'}</span></button>`).join('')
+      + (byDeal[key]||[]).map(d=>{
       const st=D[d.stage]||D.lead;
       return `<button class="cal-chip deal c-${st.c}" data-deal="${d.id}" title="${esc(d.brand)||'Deal'} · ${st.label}">🤝 ${esc(d.brand)||'Deal'}</button>`;
     }).join('');
@@ -1868,7 +1967,7 @@ function renderCalendar(){
       <div class="cal-title">${monthName}</div>
       <button class="cal-nav" id="calNext"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 6l6 6-6 6"/></svg></button>
       <button class="cal-today-btn" id="calToday">Today</button>
-      <span class="cal-hint">Click a day to schedule something${dated?' · coloured by series · 🚀 already out · 🤝 paid':''}</span>
+      <span class="cal-hint">Click a day to schedule something${dated?' · coloured by series · 🚀 out · ○ to-do · 🤝 paid':''}</span>
     </div>
     <div class="cal-scroll scrollhide"><div class="cal-grid">${grid}</div></div>`;
   $('#calPrev').onclick=()=>{calBase=new Date(y,m-1,1);render()};
@@ -1880,6 +1979,11 @@ function renderCalendar(){
   });
   content.querySelectorAll('.cal-chip[data-id]').forEach(c=>c.onclick=()=>openEditor(c.dataset.id));
   content.querySelectorAll('.cal-chip[data-deal]').forEach(c=>c.onclick=()=>openDeal(c.dataset.deal));
+  content.querySelectorAll('.cal-chip[data-task]').forEach(c=>c.onclick=e=>{
+    e.stopPropagation();
+    if(e.target.closest('[data-tick]')) return toggleTask(c.dataset.task);  // the tick is the fast path
+    openTask(c.dataset.task);
+  });
 }
 
 /* ================= PARTNERSHIPS ================= */
@@ -2093,6 +2197,10 @@ function persistView(){ localStorage.setItem('yt-view',view); localStorage.setIt
 
 function renderTabs(){
   const wrap=$('#viewTabs');
+  if(page==='tasks'){
+    wrap.innerHTML=`<button class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7l3 3 5-5"/><path d="M4 17l3 3 5-5"/><path d="M14 8h6M14 18h6"/></svg>List</button>`;
+    return;
+  }
   if(page==='deals'){
     wrap.innerHTML=`<button class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="7.5" width="18" height="12.5" rx="2.5"/><path d="M9 7.5V6a2 2 0 012-2h2a2 2 0 012 2v1.5M3 12.6h18"/></svg>Pipeline</button>`;
     return;
@@ -2105,7 +2213,7 @@ function renderTabs(){
 
 function renderSubtabs(){
   const wrap=$('#subtabs');
-  if(page!=='ideas'){ wrap.innerHTML=''; return; }   // series don't apply to deals
+  if(page!=='ideas'){ wrap.innerHTML=''; return; }   // series only apply to ideas
   wrap.innerHTML = planSubtabs();
   wrap.querySelectorAll('.chip-filter[data-tab]').forEach(b=>b.onclick=()=>{
     const t=b.dataset.tab;
@@ -2129,6 +2237,7 @@ function renderGroupPick(){
 
 // what the page header says, given the page and any sidebar filter
 function headerFor(){
+  if(page==='tasks') return {emoji:'✅', title:'To-dos', desc:'Chores that aren’t videos — they show on the calendar too'};
   if(page==='deals') return {emoji:'🤝', title:'Partnerships', desc:'Every brand deal, from first email to paid'};
   if(filterSeries!==null){
     const x = filterSeries===''?UNSORTED:SER[filterSeries];
@@ -2147,15 +2256,17 @@ function render(){
   seriesNav(); statusNav(); renderStats(); renderTabs(); renderSubtabs(); renderGroupPick();
   $('#cnt-board').textContent = ideas.length;
   $('#cnt-deals').textContent = deals.length;
+  $('#cnt-tasks').textContent = openTasks().length;
   document.querySelectorAll('.nav-item[data-page]').forEach(n=>n.classList.toggle('active',n.dataset.page===page));
   const h = headerFor();
   $('#pageEmoji').textContent = h.emoji;
   $('#viewTitle').textContent = h.title;
   $('#viewSub').textContent = h.desc;
-  $('#crumbNow').textContent = page==='deals' ? 'Partnerships' : 'Content plan';
-  $('#searchInput').placeholder = page==='deals' ? 'Search deals…' : 'Search ideas…';
-  $('#newBtn').querySelector('span').textContent = page==='deals' ? 'New deal' : 'New idea';
-  if(page==='deals') renderDeals();
+  $('#crumbNow').textContent = page==='deals' ? 'Partnerships' : (page==='tasks' ? 'To-dos' : 'Content plan');
+  $('#searchInput').placeholder = page==='deals' ? 'Search deals…' : (page==='tasks' ? 'Search to-dos…' : 'Search ideas…');
+  $('#newBtn').querySelector('span').textContent = page==='deals' ? 'New deal' : (page==='tasks' ? 'New to-do' : 'New idea');
+  if(page==='tasks') renderTasks();
+  else if(page==='deals') renderDeals();
   else if(view==='plan') renderPlan();
   else if(view==='board') renderBoard();
   else if(view==='table') renderTable();
@@ -2311,6 +2422,118 @@ function videoPreview(i){
     </a>` : (i.video ? `<div class="video-hint">Hmm, that doesn't look like a YouTube link yet</div>` : '');
 }
 
+/* ================= TO-DOS ================= */
+function taskRow(t){
+  const idea = t.ideaId ? ideas.find(i=>i.id===t.ideaId) : null;
+  const overdue = !t.done && t.date && -daysSince(t.date) < 0;
+  return `<div class="trow${t.done?' done':''}" data-task="${t.id}">
+    <div class="check-box${t.done?' done':''}" data-tick="${t.id}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 13l4 4L19 7"/></svg></div>
+    <span class="tname">${esc(t.title)||'Untitled to-do'}</span>
+    ${idea?`<span class="linked"><svg viewBox="0 0 24 24" fill="currentColor" style="width:11px;height:11px"><path d="M8 5.5v13a1 1 0 001.54.84l10-6.5a1 1 0 000-1.68l-10-6.5A1 1 0 008 5.5z"/></svg>${esc(idea.title)||'Untitled'}</span>`:''}
+    ${t.date?`<span class="due${overdue?' overdue':''}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2.5"/><path d="M8 3v4M16 3v4M3 10h18"/></svg>${fmtDate(t.date)}</span>`:''}
+    <button class="trow-x" data-deltask="${t.id}" title="Delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>`;
+}
+
+function renderTasks(){
+  const q=query.toLowerCase();
+  const list = tasks.filter(t=>{
+    if(!q) return true;
+    const idea = t.ideaId ? ideas.find(i=>i.id===t.ideaId) : null;
+    return (t.title+' '+t.notes+' '+((idea&&idea.title)||'')).toLowerCase().includes(q);
+  });
+  const groups = TASK_BUCKETS.map(b=>({
+    b, items:list.filter(t=>taskBucket(t)===b.id)
+      .sort((a,c)=>(a.date||'~').localeCompare(c.date||'~')||(a.ord||0)-(c.ord||0)),
+  })).filter(g=>g.items.length);
+
+  content.innerHTML =
+    `<div class="task-add">
+      <span class="check-box ghost"></span>
+      <input id="taskAdd" placeholder="Add a to-do, then Enter — try “Film B-rolls for Ep.1”"
+        autocapitalize="sentences" autocorrect="off" autocomplete="off" spellcheck="false">
+    </div>` +
+    (groups.length ? groups.map(g=>`
+      <div class="plan-sec">
+        <div class="plan-sec-head">${dot(g.b.c)}${g.b.label} <span class="n">${g.items.length}</span></div>
+        <div class="tlist">${g.items.map(taskRow).join('')}</div>
+      </div>`).join('')
+    : `<div class="empty"><div class="empty-inner">
+        <div class="empty-emoji">${query?'🔎':'✅'}</div>
+        <h3>${query?'Nothing matches that':'Nothing to do'}</h3>
+        <p>${query?'Try a different search.':'Chores that aren’t videos live here — filming, unboxing, errands. They show up on the calendar too.'}</p>
+      </div></div>`);
+
+  const add=$('#taskAdd');
+  add.onkeydown=e=>{
+    if(e.key!=='Enter'||!add.value.trim()) return;
+    newTask({title:add.value.trim()});
+    add.value=''; render(); $('#taskAdd').focus();
+  };
+  content.querySelectorAll('[data-tick]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); toggleTask(b.dataset.tick); });
+  content.querySelectorAll('[data-deltask]').forEach(b=>b.onclick=e=>{
+    e.stopPropagation();
+    const t=tasks.find(x=>x.id===b.dataset.deltask);
+    tasksDeleted[b.dataset.deltask]=Date.now();
+    tasks=tasks.filter(x=>x.id!==b.dataset.deltask);
+    save(); render(); toast(`“${(t&&t.title)||'To-do'}” deleted`);
+  });
+  content.querySelectorAll('.trow[data-task]').forEach(r=>r.onclick=e=>{
+    if(e.target.closest('[data-tick],[data-deltask]')) return;
+    openTask(r.dataset.task);
+  });
+}
+
+function renderTaskStats(){
+  const open=openTasks();
+  statLine([
+    {v:open.length, l:plural(open.length,'to-do','to-dos'), e:'✅'},
+    {v:open.filter(t=>taskBucket(t)==='overdue').length, l:'overdue', e:'⏰'},
+    {v:open.filter(t=>taskBucket(t)==='today').length, l:'due today', e:'📌'},
+    {v:tasks.filter(t=>t.done).length, l:'done', e:'🎉'},
+  ]);
+}
+
+/* ---------- task editor ---------- */
+function openTask(id){
+  const t=tasks.find(x=>x.id===id); if(!t) return;
+  openId=id; openKind='task';
+  buildTaskEditor(t);
+  $('#scrim').classList.add('show');
+  $('#panel').classList.add('show');
+  setTimeout(()=>{ const el=$('#taskTitle'); if(el){autoGrow(el); if(!t.title) el.focus();} },320);
+}
+function buildTaskEditor(t){
+  const b=TASK_BUCKETS.find(x=>x.id===taskBucket(t))||TASK_BUCKETS[4];
+  $('#statusChipHead').innerHTML=`<span class="status-chip c-${b.c}">${dot(b.c)}${b.label}</span>`;
+  $('#panelBody').innerHTML = `
+    <div style="display:flex;gap:8px;align-items:flex-start">
+      <div class="emoji-btn" title="${t.done?'Done':'To do'}">${t.done?'✅':'☑️'}</div>
+      <textarea class="title-input" id="taskTitle" rows="1" placeholder="What needs doing?" autocapitalize="sentences" autocorrect="off" autocomplete="off" spellcheck="false">${esc(t.title)}</textarea>
+    </div>
+    <div class="prop-grid">
+      ${prow('status','Done', `<div class="pill-sel"><span class="status-chip c-${t.done?'green':'gray'}">${dot(t.done?'green':'gray')}${t.done?'Done':'Not yet'}</span><select id="taskDone"><option value="" ${t.done?'':'selected'}>Not yet</option><option value="1" ${t.done?'selected':''}>Done</option></select></div>`)}
+      ${prow('date','Due', `<input class="prop" type="date" id="taskDate" value="${esc(t.date||'')}">`)}
+      ${prow('format','For which video', `<div class="select-wrap"><select class="prop" id="taskIdea">
+        <option value="">Not tied to a video</option>
+        ${[...ideas].sort((a,c)=>c.created-a.created).map(i=>`<option value="${i.id}" ${i.id===t.ideaId?'selected':''}>${esc(i.title||'Untitled')}</option>`).join('')}
+      </select>${chev}</div>`)}
+    </div>
+    <div class="field">
+      <div class="field-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Notes</div>
+      <textarea class="notes" id="taskNotes" placeholder="Anything you need to remember…" autocapitalize="sentences" autocorrect="off" spellcheck="false">${esc(t.notes||'')}</textarea>
+    </div>`;
+  const ti=$('#taskTitle');
+  ti.oninput=()=>{t.title=ti.value;autoGrow(ti);queueSave(t)};
+  ti.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); ti.blur(); } };
+  $('#taskDone').onchange=e=>{t.done=!!e.target.value;touch(t);save();buildTaskEditor(t);render()};
+  $('#taskDate').onchange=e=>{t.date=e.target.value;touch(t);save();buildTaskEditor(t);render()};
+  $('#taskIdea').onchange=e=>{t.ideaId=e.target.value;touch(t);save();render()};
+  const tn=$('#taskNotes');
+  tn.oninput=()=>{t.notes=tn.value;growNotes(tn);queueSave(t)};
+  growNotes(tn);
+}
+
 /* ---------- which videos a brand runs across ---------- */
 function buildDealVids(d){
   const wrap=$('#dealVids'); if(!wrap) return;
@@ -2445,9 +2668,15 @@ function paintDayMenu(){
   const scope = ideas.filter(i=>i.status!=='published' && i.date!==key)
     .filter(i=>!term || (i.title||'Untitled').toLowerCase().includes(term))
     .sort((a,b)=>(a.date?1:0)-(b.date?1:0) || ordOf(a)-ordOf(b));
+  const undatedTasks = tasks.filter(t=>!t.date && !t.done)
+    .filter(t=>!term || (t.title||'').toLowerCase().includes(term));
   dayState.scope=scope;
   el.querySelector('.sm-list').innerHTML =
       `<div class="sm-row create" data-newday="1">＋ New idea on this day</div>` +
+      `<div class="sm-row create" data-newtask="1">＋ New to-do on this day</div>` +
+      undatedTasks.map(t=>`<div class="sm-row" data-puttask="${t.id}">
+          <span class="emo">○</span><span class="nm">${esc(t.title)||'To-do'}</span>
+        </div>`).join('') +
       (scope.length ? scope.map(i=>{
         const ser=serOf(i);
         return `<div class="sm-row" data-put="${i.id}">
@@ -2459,6 +2688,17 @@ function paintDayMenu(){
 
   el.querySelectorAll('[data-put]').forEach(row=>row.onclick=()=>scheduleOnDay(row.dataset.put));
   el.querySelectorAll('[data-newday]').forEach(b=>b.onclick=newOnDay);
+  el.querySelectorAll('[data-newtask]').forEach(b=>b.onclick=()=>{
+    const key=dayState.key, title=dayState.q.trim();
+    closeDayMenu();
+    const t=newTask({title, date:key});
+    render(); openTask(t.id);
+  });
+  el.querySelectorAll('[data-puttask]').forEach(row=>row.onclick=()=>{
+    const t=tasks.find(x=>x.id===row.dataset.puttask); if(!t) return;
+    t.date=dayState.key; touch(t); save(); closeDayMenu(); render();
+    toast(`“${t.title||'To-do'}” set for ${fmtDate(t.date)}`);
+  });
 }
 function scheduleOnDay(id){
   if(!dayState) return;
@@ -2888,7 +3128,11 @@ document.querySelectorAll('.nav-item[data-page]').forEach(n=>n.onclick=()=>{
   if(page==='ideas'){ filterStatus=null; filterSeries=null; }
   persistView(); render(); closeNavMobile();
 });
-$('#newBtn').onclick=()=>{ page==='deals' ? newDeal() : newIdea() };
+$('#newBtn').onclick=()=>{
+  if(page==='deals') return newDeal();
+  if(page==='tasks'){ const t=newTask({}); render(); openTask(t.id); return; }
+  newIdea();
+};
 $('#closePanel').onclick=closeEditor;
 $('#scrim').onclick=closeEditor;
 $('#menuBtn').onclick=()=>setNav($('#sidebar').classList.contains('collapsed'));
@@ -2896,6 +3140,10 @@ $('#sideScrim').onclick=()=>setNav(false);
 $('#searchInput').oninput=e=>{query=e.target.value;render()};
 $('#delBtn').onclick=()=>{
   if(!openId) return;
+  if(openKind==='task'){
+    if(confirm('Delete this to-do?')){tasksDeleted[openId]=Date.now();tasks=tasks.filter(t=>t.id!==openId);save();closeEditor();render();toast('To-do deleted')}
+    return;
+  }
   if(openKind==='deal'){
     if(confirm('Delete this partnership?')){dealsDeleted[openId]=Date.now();deals=deals.filter(d=>d.id!==openId);save();closeEditor();render();toast('Partnership deleted')}
     return;
@@ -2903,6 +3151,11 @@ $('#delBtn').onclick=()=>{
   if(confirm('Delete this idea?')){deletedMap[openId]=Date.now();ideas=ideas.filter(i=>i.id!==openId);save();closeEditor();render();toast('Idea deleted')}
 };
 $('#dupBtn').onclick=()=>{
+  if(openKind==='task'){
+    const t=tasks.find(x=>x.id===openId);
+    if(t){const c={...t,id:uid(),title:(t.title||'Untitled')+' (copy)',done:false,created:Date.now(),updated:Date.now()};tasks.unshift(c);save();render();openTask(c.id);toast('Duplicated')}
+    return;
+  }
   if(openKind==='deal'){
     const d=deals.find(x=>x.id===openId);
     if(d){const c={...d,id:uid(),brand:(d.brand||'Untitled')+' (copy)',created:Date.now(),updated:Date.now(),checklist:(d.checklist||[]).map(x=>({...x}))};deals.unshift(c);save();render();openDeal(c.id);toast('Duplicated')}
@@ -2963,7 +3216,7 @@ async function gh(path,opts={}){
   return res.json();
 }
 
-function syncDoc(){ return {v:3, savedAt:Date.now(), ideas, deleted:deletedMap, deals, dealsDeleted, series:SERIES, seriesDeleted}; }
+function syncDoc(){ return {v:4, savedAt:Date.now(), ideas, deleted:deletedMap, deals, dealsDeleted, series:SERIES, seriesDeleted, tasks, tasksDeleted}; }
 
 function describeSyncError(e){
   if(!e) return 'Unknown error';
@@ -2991,7 +3244,7 @@ async function syncNow(){
   SY.busy=true; setSyncUI('syncing');
   try{
     const g=await gh('/gists/'+SY.gist);
-    let remote={ideas:[],deleted:{},deals:[],dealsDeleted:{},series:[],seriesDeleted:{}};
+    let remote={ideas:[],deleted:{},deals:[],dealsDeleted:{},series:[],seriesDeleted:{},tasks:[],tasksDeleted:{}};
     try{
       const f=g.files[SYNC_FILE];
       const raw=f.truncated ? await (await fetch(f.raw_url)).text() : f.content;
@@ -3001,9 +3254,10 @@ async function syncNow(){
         ideas:d.ideas, deleted:obj(d.deleted),
         deals:Array.isArray(d.deals)?d.deals:[], dealsDeleted:obj(d.dealsDeleted),
         series:Array.isArray(d.series)?d.series:[], seriesDeleted:obj(d.seriesDeleted),
+        tasks:Array.isArray(d.tasks)?d.tasks:[], tasksDeleted:obj(d.tasksDeleted),
       };
     }catch(e){/* unreadable remote → treat as empty, our copy becomes truth */}
-    const before=JSON.stringify([ideas,deals,SERIES]);
+    const before=JSON.stringify([ideas,deals,SERIES,tasks]);
     const m=mergeBoards(ideas,deletedMap,remote.ideas,remote.deleted);
     ideas=m.ideas; deletedMap=m.deleted;
     const md=mergeBoards(deals,dealsDeleted,remote.deals,remote.dealsDeleted);
@@ -3013,15 +3267,20 @@ async function syncNow(){
       const ms=mergeBoards(SERIES,seriesDeleted,cleanSeries(remote.series),remote.seriesDeleted);
       SERIES=cleanSeries(ms.ideas); seriesDeleted=ms.deleted; indexSeries();
     }
+    const mt=mergeBoards(tasks,tasksDeleted,remote.tasks,remote.tasksDeleted);
+    tasks=mt.ideas; tasksDeleted=mt.deleted;
     ideas.forEach(migrateIdea); ensureOrds(ideas);
     deals.forEach(migrateDeal);
+    tasks.forEach(migrateTask);
     localStorage.setItem('yt-series-v1',JSON.stringify(SERIES));
     localStorage.setItem('yt-series-deleted',JSON.stringify(seriesDeleted));
+    localStorage.setItem('yt-tasks-v1',JSON.stringify(tasks));
+    localStorage.setItem('yt-tasks-deleted',JSON.stringify(tasksDeleted));
     localStorage.setItem('yt-ideas-v2',JSON.stringify(ideas));
     localStorage.setItem('yt-deleted',JSON.stringify(deletedMap));
     localStorage.setItem('yt-deals-v1',JSON.stringify(deals));
     localStorage.setItem('yt-deals-deleted',JSON.stringify(dealsDeleted));
-    if(JSON.stringify([ideas,deals,SERIES])!==before) render();
+    if(JSON.stringify([ideas,deals,SERIES,tasks])!==before) render();
     await gh('/gists/'+SY.gist,{method:'PATCH',body:JSON.stringify({
       files:{[SYNC_FILE]:{content:JSON.stringify(syncDoc())}},
     })});
@@ -3140,7 +3399,7 @@ if(SY.token&&SY.gist){ setSyncUI('syncing'); syncNow(); } else setSyncUI('off');
 
 // JSON backup / restore
 $('#backupBtn').onclick=()=>{
-  const blob=new Blob([JSON.stringify({v:3,exported:Date.now(),ideas,deals,series:SERIES},null,2)],{type:'application/json'});
+  const blob=new Blob([JSON.stringify({v:4,exported:Date.now(),ideas,deals,series:SERIES,tasks},null,2)],{type:'application/json'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);
   a.download=`youtube-ideas-backup-${dkey(new Date())}.json`;a.click();
   toast('Backup downloaded ✓');
@@ -3181,7 +3440,11 @@ $('#importFile').onchange=e=>{
         created:Number(x.created)||Date.now(),
         updated:Number(x.updated)||Date.now(),
       }));
-      if(!clean.length&&!cleanDeals.length) throw new Error('nothing in file');
+      const cleanTasks = (parsed&&Array.isArray(parsed.tasks)?parsed.tasks:[])
+        .filter(x=>x&&typeof x==='object')
+        .map(x=>migrateTask({...x, id:String(x.id||uid()),
+          created:Number(x.created)||Date.now(), updated:Number(x.updated)||Date.now()}));
+      if(!clean.length&&!cleanDeals.length&&!cleanTasks.length) throw new Error('nothing in file');
       const what = `${clean.length} ideas` + (cleanDeals.length?` and ${cleanDeals.length} partnerships`:'');
       if(!confirm(`Replace your current board (${ideas.length} ideas, ${deals.length} partnerships) with this backup (${what})?`)) return;
       // records dropped by the import count as deletions so sync doesn't resurrect them
@@ -3189,6 +3452,9 @@ $('#importFile').onchange=e=>{
       ideas.forEach(x=>{ if(!kept.has(x.id)) deletedMap[x.id]=Date.now(); });
       const keptDeals=new Set(cleanDeals.map(x=>x.id));
       deals.forEach(x=>{ if(!keptDeals.has(x.id)) dealsDeleted[x.id]=Date.now(); });
+      const keptTasks=new Set(cleanTasks.map(x=>x.id));
+      tasks.forEach(x=>{ if(!keptTasks.has(x.id)) tasksDeleted[x.id]=Date.now(); });
+      tasks=cleanTasks;
       // a backup carries its own playlists; adopt them before normalising the ideas
       if(parsed && Array.isArray(parsed.series) && parsed.series.length){
         const kept=new Set(cleanSeries(parsed.series).map(x=>x.id));
@@ -3214,7 +3480,12 @@ document.addEventListener('keydown',e=>{
     else if($('#panel').classList.contains('show')) closeEditor();
   }
   if(e.key==='/'&&document.activeElement.tagName!=='INPUT'&&document.activeElement.tagName!=='TEXTAREA'){e.preventDefault();$('#searchInput').focus()}
-  if(e.key==='n'&&!e.metaKey&&!e.ctrlKey&&document.activeElement.tagName!=='INPUT'&&document.activeElement.tagName!=='TEXTAREA'){e.preventDefault();page==='deals'?newDeal():newIdea()}
+  if(e.key==='n'&&!e.metaKey&&!e.ctrlKey&&document.activeElement.tagName!=='INPUT'&&document.activeElement.tagName!=='TEXTAREA'){
+    e.preventDefault();
+    if(page==='deals') newDeal();
+    else if(page==='tasks'){ const t=newTask({}); render(); openTask(t.id); }
+    else newIdea();
+  }
 });
 
 render();
