@@ -295,6 +295,12 @@ button.add-pill{font-family:inherit}
 .dpill{background:var(--tint-2);color:var(--ink-2)}
 .dpill.cat{background:transparent;box-shadow:inset 0 0 0 1px var(--line-2);color:var(--ink-3)}
 .brandpill{background:var(--c-yellow-bg);color:var(--c-yellow-fg)}
+.code-pill{
+  display:inline-flex;align-items:center;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:11.5px;font-weight:600;letter-spacing:.04em;padding:2px 7px;border-radius:3px;
+  background:var(--c-green-bg);color:var(--c-green-fg);
+}
+input.prop.mono-in{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.03em}
 
 /* ============ BOARD ============ */
 .board{display:flex;gap:10px;height:100%;align-items:flex-start;min-height:min-content}
@@ -1055,11 +1061,9 @@ function cleanSeries(list){
     .sort((a,b)=>a.ord-b.ord);
 }
 function loadSeries(){
-  try{
-    const d=JSON.parse(localStorage.getItem('yt-series-v1'));
-    if(Array.isArray(d)&&d.length) return cleanSeries(d);
-  }catch(e){}
-  return seedSeries();
+  let d=null;
+  try{ d=JSON.parse(localStorage.getItem('yt-series-v1')) }catch(e){ console.warn('Unreadable yt-series-v1', e) }
+  return (Array.isArray(d)&&d.length) ? cleanSeries(d) : seedSeries();
 }
 const PALETTE = ['gray','brown','orange','yellow','green','blue','purple','pink','red'];
 const EMOJI_POOL = ['🎬','🌷','🍰','🎧','🧺','🕯','🍋','🧊','🪩','🧸','🎀','🍄'];
@@ -1192,6 +1196,10 @@ const COMP_TYPES = [
   {id:'gifted',     label:'Unpaid — gifted product'},
 ];
 const CT = Object.fromEntries(COMP_TYPES.map(x=>[x.id,x.label]));
+// who started the conversation
+const ORIGINS = [{id:'them', label:'They reached out'},{id:'me', label:'I reached out'}];
+const OR = Object.fromEntries(ORIGINS.map(x=>[x.id,x.label]));
+const originOf = d => OR[d.origin] ? d.origin : 'them';
 // deals saved before compensation had its own field
 const COMP_FROM_TYPE = {gifted:'gifted', affiliate:'commission'};
 // what the brand actually sells
@@ -1264,26 +1272,36 @@ function migrateIdea(x){
     .map(id=>SER[id] ? id : (SERIES_REMAP[id] || id)))];
   return x;
 }
-function load(){
+// Only a parse failure may fall back to empty. A migration that throws must NOT
+// look like "no data" — that silently wipes the board and the next save makes it real.
+function readList(key){
   try{
-    const d = JSON.parse(localStorage.getItem('yt-ideas-v2'));
-    if(Array.isArray(d)){ d.forEach(migrateIdea); ensureOrds(d); return d; }
-  }catch(e){}
-  return [];
+    const d = JSON.parse(localStorage.getItem(key));
+    return Array.isArray(d) ? d : null;
+  }catch(e){ console.warn('Unreadable '+key, e); return null; }
+}
+function load(){
+  const d = readList('yt-ideas-v2');
+  if(!d) return [];
+  d.forEach(migrateIdea); ensureOrds(d);
+  return d;
 }
 function migrateDeal(x){
   if(!x||typeof x!=='object') return x;
   if(!D[x.stage]) x.stage='lead';
+  if(!Array.isArray(x.ideaIds)) x.ideaIds = x.ideaId ? [x.ideaId] : [];
+  x.ideaIds = [...new Set(x.ideaIds.filter(v=>typeof v==='string' && v))];
+  x.ideaId = x.ideaIds[0] || '';
+  if(!OR[x.origin]) x.origin='them';
   // 'gifted' / 'affiliate' used to live in the type list; they're compensation
   if(COMP_FROM_TYPE[x.type]){ if(!x.comp) x.comp=COMP_FROM_TYPE[x.type]; x.type=''; }
   return x;
 }
 function loadDeals(){
-  try{
-    const d = JSON.parse(localStorage.getItem('yt-deals-v1'));
-    if(Array.isArray(d)){ d.forEach(migrateDeal); return d; }
-  }catch(e){}
-  return [];
+  const d = readList('yt-deals-v1');
+  if(!d) return [];
+  d.forEach(migrateDeal);
+  return d;
 }
 function save(){
   localStorage.setItem('yt-series-v1', JSON.stringify(SERIES));
@@ -1316,8 +1334,16 @@ function siteLabel(u){
   try{ return new URL(siteHref(u)).hostname.replace(/^www\./,'') }
   catch(e){ return (u||'').replace(/^https?:\/\//i,'').replace(/^www\./,'').split('/')[0] }
 }
-function dealsForIdea(id){ return deals.filter(d=>d.ideaId===id && d.stage!=='passed'); }
-function linkedDeals(id){ return deals.filter(d=>d.ideaId===id); }
+// a brand usually buys more than one video, so the link is a list
+const dealIdeaIds = d => Array.isArray(d.ideaIds) ? d.ideaIds : (d.ideaId ? [d.ideaId] : []);
+const dealIdeas   = d => dealIdeaIds(d).map(id=>ideas.find(i=>i.id===id)).filter(Boolean);
+function setDealIdeas(d, ids){
+  d.ideaIds=[...new Set(ids.filter(id=>ideas.some(i=>i.id===id)))];
+  d.ideaId=d.ideaIds[0]||'';   // mirrored so a device on the old build still sees one
+  touch(d);
+}
+function dealsForIdea(id){ return deals.filter(d=>dealIdeaIds(d).includes(id) && d.stage!=='passed'); }
+function linkedDeals(id){ return deals.filter(d=>dealIdeaIds(d).includes(id)); }
 // one line summing up the commercial side of a deal: what it is and what you get
 function dealSummary(d){
   return [DT[d.type], CT[d.comp], feeLabel(d).tbd?null:feeLabel(d).text]
@@ -1861,8 +1887,8 @@ function filteredDeals(){
   if(!query) return deals;
   const q=query.toLowerCase();
   return deals.filter(d=>{
-    const idea = d.ideaId ? ideas.find(i=>i.id===d.ideaId) : null;
-    const hay = [d.brand,d.contact,d.brief,d.notes,DT[d.type],PT[d.category],CT[d.comp],idea&&idea.title,(d.checklist||[]).map(c=>c.t).join(' ')].filter(Boolean).join(' ');
+    const hay = [d.brand,d.contact,d.brief,d.notes,d.promo,d.affiliate,DT[d.type],PT[d.category],CT[d.comp],
+      ...dealIdeas(d).map(i=>i.title),(d.checklist||[]).map(c=>c.t).join(' ')].filter(Boolean).join(' ');
     return hay.toLowerCase().includes(q);
   });
 }
@@ -1870,7 +1896,7 @@ function filteredDeals(){
 function dealCardHTML(d){
   const st=D[d.stage]||D.lead;
   const prog=progressOf(d);
-  const idea=d.ideaId ? ideas.find(i=>i.id===d.ideaId) : null;
+  const vids=dealIdeas(d);
   const settled = d.stage==='paid'||d.stage==='passed';
   const fl=feeLabel(d);
   return `<div class="dcard" data-id="${d.id}" draggable="true">
@@ -1888,10 +1914,11 @@ function dealCardHTML(d){
       ${d.category&&PT[d.category]?`<span class="dpill cat">${PT[d.category]}</span>`:''}
     </div>`:''}
     ${d.brief?`<div class="dcard-deliv">${esc(d.brief)}</div>`:''}
-    ${(d.due||d.first||idea||(prog>0&&prog<100))?`<div class="dcard-foot">
-      ${d.due?dateChip(d.due,settled):(d.first?`<span class="due" title="They reached out on ${esc(d.first)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3.5 7l8.5 6 8.5-6"/></svg>Since ${fmtDate(d.first)}</span>`:'')}
+    ${d.promo?`<div class="dcard-tags"><span class="code-pill">${esc(d.promo)}</span></div>`:''}
+    ${(d.due||d.first||vids.length||(prog>0&&prog<100))?`<div class="dcard-foot">
+      ${d.due?dateChip(d.due,settled):(d.first?`<span class="due" title="${esc(OR[originOf(d)])} on ${esc(d.first)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3.5 7l8.5 6 8.5-6"/></svg>${originOf(d)==='me'?'Pitched':'Since'} ${fmtDate(d.first)}</span>`:'')}
       ${prog>0&&prog<100?`<span class="prog"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>${prog}%</span>`:''}
-      ${idea?`<span class="linked"><svg viewBox="0 0 24 24" fill="currentColor" style="width:11px;height:11px"><path d="M8 5.5v13a1 1 0 001.54.84l10-6.5a1 1 0 000-1.68l-10-6.5A1 1 0 008 5.5z"/></svg>${esc(idea.title)||'Untitled'}</span>`:''}
+      ${vids.length?`<span class="linked" title="${esc(vids.map(i=>i.title||'Untitled').join(' · '))}"><svg viewBox="0 0 24 24" fill="currentColor" style="width:11px;height:11px"><path d="M8 5.5v13a1 1 0 001.54.84l10-6.5a1 1 0 000-1.68l-10-6.5A1 1 0 008 5.5z"/></svg>${esc(vids[0].title)||'Untitled'}${vids.length>1?` +${vids.length-1}`:''}</span>`:''}
       ${d.site?`<a class="linked site" href="${esc(siteHref(d.site))}" target="_blank" rel="noopener" draggable="false" title="${esc(siteHref(d.site))}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:11px;height:11px"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18"/></svg>${esc(siteLabel(d.site))}</a>`:''}
     </div>`:''}
   </div>`;
@@ -2284,6 +2311,89 @@ function videoPreview(i){
     </a>` : (i.video ? `<div class="video-hint">Hmm, that doesn't look like a YouTube link yet</div>` : '');
 }
 
+/* ---------- which videos a brand runs across ---------- */
+function buildDealVids(d){
+  const wrap=$('#dealVids'); if(!wrap) return;
+  wrap.innerHTML = dealIdeas(d).map(i=>{
+    const st=S[i.status]||S.idea;
+    return `<span class="series-pill c-${st.c}"><span class="emo">${stEmoji(i)}</span>`+
+      `<span class="txt link" data-open="${i.id}" title="Open this video">${esc(i.title)||'Untitled'}</span>`+
+      `<button data-unvid="${i.id}" title="Unlink"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 6l12 12M18 6L6 18"/></svg></button></span>`;
+  }).join('') + `<button class="add-pill" id="dealVidAdd">+ ${dealIdeas(d).length?'Another video':'Link a video'}</button>`;
+  wrap.querySelectorAll('[data-open]').forEach(el=>el.onclick=()=>openEditor(el.dataset.open));
+  wrap.querySelectorAll('button[data-unvid]').forEach(b=>b.onclick=()=>{
+    setDealIdeas(d, dealIdeaIds(d).filter(v=>v!==b.dataset.unvid));
+    save(); buildDealEditor(d); render();
+  });
+  const add=$('#dealVidAdd');
+  if(add) add.onclick=()=>openDealVidMenu(add, d);
+}
+
+let vidState=null;
+function closeVidMenu(){
+  if(!vidState) return;
+  vidState.scrim.remove(); vidState.el.remove(); vidState=null;
+  document.removeEventListener('keydown', vidKeys, true);
+}
+function vidKeys(e){ if(e.key==='Escape'){ e.stopPropagation(); closeVidMenu(); } }
+function openDealVidMenu(anchor, d){
+  closeSeriesMenu(); closeDayMenu(); closeVidMenu();
+  const scrim=document.createElement('div'); scrim.className='sm-scrim';
+  const el=document.createElement('div'); el.className='sm';
+  document.body.append(scrim, el);
+  scrim.onclick=closeVidMenu;
+  document.addEventListener('keydown', vidKeys, true);
+  vidState={el, scrim, deal:d, q:''};
+  const r=anchor.getBoundingClientRect();
+  el.style.left = Math.max(10, Math.min(r.left, innerWidth-280)) + 'px';
+  el.style.top  = Math.min(r.bottom+4, Math.max(10, innerHeight-330)) + 'px';
+  paintVidMenu();
+  const inp=el.querySelector('.sm-search'); if(inp) inp.focus();
+}
+function paintVidMenu(){
+  if(!vidState) return;
+  const {el, deal} = vidState;
+  if(!el.querySelector('.sm-search')){
+    el.innerHTML =
+      `<input class="sm-search" placeholder="Find a video…" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false">` +
+      `<div class="sm-hint">Videos this brand runs across</div><div class="sm-list"></div>`;
+    const inp=el.querySelector('.sm-search');
+    inp.oninput=e=>{ vidState.q=e.target.value; paintVidMenu(); };
+    inp.onkeydown=e=>{
+      if(e.key!=='Enter') return;
+      e.preventDefault();
+      const sc=vidState.scope||[];
+      if(sc.length) linkDealVid(sc[0].id);
+    };
+  }
+  const term=vidState.q.trim().toLowerCase();
+  const on=dealIdeaIds(deal);
+  const scope=[...ideas]
+    .filter(i=>!on.includes(i.id))
+    .filter(i=>!term || (i.title||'Untitled').toLowerCase().includes(term))
+    .sort((a,b)=>b.created-a.created);
+  vidState.scope=scope;
+  el.querySelector('.sm-list').innerHTML = scope.length
+    ? scope.map(i=>{
+        const st=S[i.status]||S.idea;
+        return `<div class="sm-row" data-vid="${i.id}">
+          <span class="emo">${stEmoji(i)}</span>
+          <span class="nm">${esc(i.title)||'Untitled'}</span>
+          <span class="sm-when">${st.label}</span>
+        </div>`;
+      }).join('')
+    : `<div class="sm-empty">${term?'No video matches that.':'Every video is linked already.'}</div>`;
+  el.querySelectorAll('[data-vid]').forEach(r=>r.onclick=()=>linkDealVid(r.dataset.vid));
+}
+function linkDealVid(id){
+  if(!vidState) return;
+  const d=vidState.deal;
+  setDealIdeas(d, [...dealIdeaIds(d), id]);
+  save(); closeVidMenu(); buildDealEditor(d); render();
+  const i=ideas.find(x=>x.id===id);
+  toast(`${d.brand||'Deal'} linked to “${(i&&i.title)||'Untitled'}”`);
+}
+
 /* ---------- click a day, pick what goes there ---------- */
 let dayState=null;
 function closeDayMenu(){
@@ -2489,7 +2599,7 @@ function refreshAfterSeriesChange(){
 function buildDealLink(i){
   const wrap=$('#dealEdit'); if(!wrap) return;
   const linked=linkedDeals(i.id);
-  const free=deals.filter(d=>!d.ideaId);
+  const free=deals.filter(d=>!dealIdeaIds(d).includes(i.id));
   wrap.innerHTML = linked.map(d=>{
     const st=D[d.stage]||D.lead;
     return `<span class="series-pill c-${st.c}"><span class="emo">🤝</span>` +
@@ -2506,7 +2616,7 @@ function buildDealLink(i){
   wrap.querySelectorAll('button[data-unlink]').forEach(b=>b.onclick=()=>{
     const d=deals.find(x=>x.id===b.dataset.unlink);
     if(!d) return;
-    d.ideaId=''; touch(d); save(); buildEditor(i); render();
+    setDealIdeas(d, dealIdeaIds(d).filter(v=>v!==i.id)); save(); buildEditor(i); render();
     toast(`${d.brand||'Deal'} unlinked`);
   });
   const add=$('#dealLinkAdd');
@@ -2516,7 +2626,7 @@ function buildDealLink(i){
     if(v==='__new'){ newDeal('lead', i.id, true); return; }
     const d=deals.find(x=>x.id===v);
     if(!d) return;
-    d.ideaId=i.id; touch(d); save(); buildEditor(i); render();
+    setDealIdeas(d, [...dealIdeaIds(d), i.id]); save(); buildEditor(i); render();
     toast(`Linked to ${d.brand||'that deal'}`);
   };
 }
@@ -2592,7 +2702,7 @@ function openDeal(id){
 
 function buildDealEditor(d){
   const st=D[d.stage]||D.lead, prog=progressOf(d);
-  const linked = d.ideaId ? ideas.find(i=>i.id===d.ideaId) : null;
+  const vids = dealIdeas(d);
   $('#statusChipHead').innerHTML=`<span class="status-chip c-${st.c}">${dot(st.c)}${st.label}</span>`;
   $('#panelBody').innerHTML = `
     <div style="display:flex;gap:8px;align-items:flex-start">
@@ -2611,28 +2721,27 @@ function buildDealEditor(d){
       ${(d.comp==='commission'||d.comp==='both') ? prow('money','Commission',
         `<div class="money-wrap pct"><input class="prop" id="pctInput" inputmode="decimal" placeholder="0" value="${esc(d.commission||'')}" autocomplete="off"><span class="cur suffix">%</span></div>`) : ''}
       ${prow('tag','What they sell', sel('dealCategory', `<option value="">Uncategorised</option>`+PRODUCT_TYPES.map(x=>`<option value="${x.id}" ${x.id===d.category?'selected':''}>${x.label}</option>`).join('')))}
-      ${prow('date','They reached out', `<input class="prop" type="date" id="dealFirst" value="${esc(d.first||'')}">`)}
+      ${prow('date','First contact',
+        pillSel('dealOrigin', `<span class="dpill">${esc(OR[originOf(d)])}</span>`,
+          ORIGINS.map(x=>`<option value="${x.id}" ${x.id===originOf(d)?'selected':''}>${x.label}</option>`).join(''))
+        + `<input class="prop" type="date" id="dealFirst" value="${esc(d.first||'')}">`)}
       ${prow('date', d.stage==='paid'?'Paid on':'Deliver by',
         `<input class="prop" type="date" id="dealDue" value="${esc(d.due||'')}">`+
         ((d.due&&d.stage!=='paid'&&d.stage!=='passed'&&dateClass(d.due,false))?`<span style="font-size:12.5px">${dateChip(d.due,false)}</span>`:''))}
       ${prow('user','Contact', `<input class="prop" id="dealContact" placeholder="Name or email" value="${esc(d.contact||'')}" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false">`)}
+      ${prow('tag','Promo code', `<input class="prop mono-in" id="dealPromo" placeholder="YANNI10" value="${esc(d.promo||'')}" autocapitalize="characters" autocorrect="off" autocomplete="off" spellcheck="false">`)}
+      ${prow('link','Affiliate link',
+        `<input class="prop" id="dealAff" placeholder="brand.com/yourname" value="${esc(d.affiliate||'')}" inputmode="url" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false">`+
+        (d.affiliate?`<a class="label-link" href="${esc(siteHref(d.affiliate))}" target="_blank" rel="noopener">Open ↗</a>`:''))}
       ${prow('globe','Website',
         `<input class="prop" id="dealSite" placeholder="brand.com" value="${esc(d.site||'')}" inputmode="url" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false">`+
         (d.site?`<a class="label-link" href="${esc(siteHref(d.site))}" target="_blank" rel="noopener">Open ↗</a>`:''))}
     </div>
 
     <div class="field">
-      <div class="field-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M10.5 9.3v5.4l4.5-2.7z"/></svg>The video it lives in</div>
-      <div class="select-wrap">
-        <select class="prop" id="dealIdea">
-          <option value="">Not linked to an idea yet</option>
-          ${[...ideas].sort((a,b)=>b.created-a.created).map(i=>`<option value="${i.id}" ${i.id===d.ideaId?'selected':''}>${esc((i.title||'Untitled')+' · '+(S[i.status]||S.idea).label)}</option>`).join('')}
-        </select>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
-      </div>
-      ${linked
-        ? `<button class="btn-ghost" id="gotoIdea" style="margin-top:6px;padding-left:2px">Open “${esc(linked.title)||'Untitled'}” →</button>`
-        : `<div class="video-hint">Link a deal to an idea and a 🤝 badge shows on that idea's card.</div>`}
+      <div class="field-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M10.5 9.3v5.4l4.5-2.7z"/></svg>The videos it lives in</div>
+      <div class="series-edit" id="dealVids"></div>
+      ${vids.length?'':`<div class="video-hint">A brand can run across several videos — link each one and a 🤝 badge shows on its card.</div>`}
     </div>
 
     <div class="field">
@@ -2671,13 +2780,17 @@ function buildDealEditor(d){
   $('#dealType').onchange=e=>{d.type=e.target.value;touch(d);save();buildDealEditor(d);render()};
   $('#dealCategory').onchange=e=>{d.category=e.target.value;touch(d);save();render()};
   $('#dealFirst').onchange=e=>{d.first=e.target.value;touch(d);save();render()};
+  $('#dealOrigin').onchange=e=>{d.origin=e.target.value;touch(d);save();buildDealEditor(d);render()};
+  $('#dealPromo').oninput=e=>{d.promo=e.target.value.trim();queueSave(d)};
+  const af=$('#dealAff');
+  af.oninput=e=>{d.affiliate=e.target.value.trim();queueSave(d)};
+  af.onblur=()=>{ if(d.affiliate) buildDealEditor(d); };
   $('#dealDue').onchange=e=>{d.due=e.target.value;touch(d);save();buildDealEditor(d);render()};
   $('#dealContact').oninput=e=>{d.contact=e.target.value;queueSave(d)};
   const si=$('#dealSite');
   si.oninput=e=>{d.site=e.target.value.trim();queueSave(d)};
   si.onblur=()=>{ if(d.site) buildDealEditor(d); };
-  $('#dealIdea').onchange=e=>{d.ideaId=e.target.value;touch(d);save();buildDealEditor(d);render()};
-  const gi=$('#gotoIdea'); if(gi) gi.onclick=()=>openEditor(d.ideaId);
+  buildDealVids(d);
   const bf=$('#dealBrief');
   bf.oninput=()=>{d.brief=bf.value;grow(bf,84);queueSave(d)};
   grow(bf,84);
@@ -2718,7 +2831,8 @@ function dealProgUI(d){
 
 function newDeal(stage, ideaId, stay){
   const d={id:uid(),brand:'',contact:'',stage:stage||'lead',type:'',category:'',comp:'',fee:'',commission:'',
-    first:dkey(new Date()),due:'',site:'',ideaId:ideaId||'',brief:'',notes:'',
+    origin:'them',first:dkey(new Date()),due:'',site:'',promo:'',affiliate:'',
+    ideaIds:ideaId?[ideaId]:[],ideaId:ideaId||'',brief:'',notes:'',
     checklist:DEFAULT_DELIV.map(t=>({t,done:false})),created:Date.now(),updated:Date.now()};
   deals.unshift(d); save();
   // started from an idea, so don't drag the whole app over to Partnerships
@@ -2805,9 +2919,9 @@ $('#exportBtn').onclick=()=>{
   if(deals.length){
     md += '\n\n# Brand partnerships\n\n' + deals.map(d=>{
       const st=(D[d.stage]||D.lead).label;
-      const idea=d.ideaId?ideas.find(i=>i.id===d.ideaId):null;
+      const vids=dealIdeas(d);
       const done=(d.checklist||[]).filter(c=>c.done).length;
-      return `## 🤝 ${d.brand||'Untitled deal'}\n- **Stage:** ${st}\n${d.type&&DT[d.type]?`- **Type:** ${DT[d.type]}\n`:''}${d.category&&PT[d.category]?`- **Category:** ${PT[d.category]}\n`:''}${d.comp&&CT[d.comp]?`- **Compensation:** ${CT[d.comp]}\n`:''}- **Fee:** ${feeLabel(d).text}\n${d.first?`- **They reached out:** ${d.first}\n`:''}${d.contact?`- **Contact:** ${d.contact}\n`:''}${d.site?`- **Website:** ${siteHref(d.site)}\n`:''}${d.due?`- **${d.stage==='paid'?'Paid on':'Deliver by'}:** ${d.due}\n`:''}${idea?`- **Video:** ${idea.title||'Untitled'}\n`:''}- **Deliverables:** ${done}/${(d.checklist||[]).length} done\n${d.brief?`\n**Brief & terms:** ${d.brief}\n`:''}${d.notes?'\n'+d.notes+'\n':''}`;
+      return `## 🤝 ${d.brand||'Untitled deal'}\n- **Stage:** ${st}\n${d.type&&DT[d.type]?`- **Type:** ${DT[d.type]}\n`:''}${d.category&&PT[d.category]?`- **Category:** ${PT[d.category]}\n`:''}${d.comp&&CT[d.comp]?`- **Compensation:** ${CT[d.comp]}\n`:''}- **Fee:** ${feeLabel(d).text}\n${d.first?`- **${OR[originOf(d)]}:** ${d.first}\n`:''}${d.contact?`- **Contact:** ${d.contact}\n`:''}${d.site?`- **Website:** ${siteHref(d.site)}\n`:''}${d.due?`- **${d.stage==='paid'?'Paid on':'Deliver by'}:** ${d.due}\n`:''}${d.promo?`- **Promo code:** ${d.promo}\n`:''}${d.affiliate?`- **Affiliate link:** ${siteHref(d.affiliate)}\n`:''}${vids.length?`- **Videos:** ${vids.map(i=>i.title||'Untitled').join(', ')}\n`:''}- **Deliverables:** ${done}/${(d.checklist||[]).length} done\n${d.brief?`\n**Brief & terms:** ${d.brief}\n`:''}${d.notes?'\n'+d.notes+'\n':''}`;
     }).join('\n---\n\n');
   }
   const blob=new Blob([md],{type:'text/markdown'});
@@ -3059,7 +3173,9 @@ $('#importFile').onchange=e=>{
         type:DT[x.type]?x.type:'', category:PT[x.category]?x.category:'',
         comp:CT[x.comp]?x.comp:(COMP_FROM_TYPE[x.type]||''), commission:String(x.commission||''),
         fee:String(x.fee||''), first:String(x.first||''), due:String(x.due||''),
-        site:String(x.site||''), ideaId:String(x.ideaId||''),
+        site:String(x.site||''), promo:String(x.promo||''), affiliate:String(x.affiliate||''),
+        origin:OR[x.origin]?x.origin:'them',
+        ideaIds:Array.isArray(x.ideaIds)?x.ideaIds.map(String):(x.ideaId?[String(x.ideaId)]:[]),
         brief:String(x.brief||''), notes:String(x.notes||''),
         checklist:Array.isArray(x.checklist)?x.checklist.map(c=>({t:String(c.t||''),done:!!c.done})):[],
         created:Number(x.created)||Date.now(),
