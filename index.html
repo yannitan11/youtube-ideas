@@ -554,6 +554,46 @@ tbody td{padding:8px 10px;vertical-align:middle}
 .cal-chip.task.done{opacity:.55}
 .cal-chip.task.done .t{text-decoration:line-through}
 
+/* reference images */
+.refgrid{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:8px;
+  border-radius:var(--radius);padding:2px;transition:box-shadow .12s,background .12s;
+}
+.refgrid.over{background:var(--accent-soft);box-shadow:0 0 0 2px var(--accent)}
+.refcell{
+  position:relative;aspect-ratio:1;border-radius:var(--radius-md);overflow:hidden;
+  border:1px solid var(--line);background:var(--tint);cursor:zoom-in;
+}
+.refcell:hover{border-color:var(--line-2)}
+.refimg,.refimg img{width:100%;height:100%;display:block;object-fit:cover}
+.refimg.missing{
+  display:grid;place-items:center;text-align:center;padding:6px;
+  font-size:11px;line-height:1.35;color:var(--ink-3);
+  background:repeating-linear-gradient(45deg,transparent,transparent 6px,var(--hover) 6px,var(--hover) 12px);
+}
+.refx{
+  position:absolute;top:5px;right:5px;width:20px;height:20px;border-radius:50%;
+  display:grid;place-items:center;color:#fff;background:rgba(15,15,15,.6);
+  opacity:0;transition:.1s;backdrop-filter:blur(3px);
+}
+.refcell:hover .refx{opacity:1}
+.refx:hover{background:rgba(15,15,15,.85)}
+.refx svg{width:11px;height:11px}
+.refdrop{
+  aspect-ratio:1;border:1px dashed var(--line-2);border-radius:var(--radius-md);
+  display:grid;place-items:center;text-align:center;line-height:1.35;
+  font-size:11.5px;color:var(--ink-3);transition:.12s;background:none;
+}
+.refdrop:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.ref-actions{display:flex;align-items:center;gap:6px;margin-top:8px}
+.ref-actions .btn-ghost{flex-shrink:0}
+.ref-actions input.prop{flex:1;min-width:0}
+.lightbox{
+  position:fixed;inset:0;z-index:90;background:rgba(15,15,15,.82);
+  display:grid;place-items:center;padding:28px;cursor:zoom-out;
+}
+.lightbox img{max-width:100%;max-height:100%;border-radius:var(--radius-md);box-shadow:var(--pop)}
+
 /* ============ EMPTY ============ */
 .empty{display:grid;place-items:center;height:100%;text-align:center;min-height:280px}
 .empty-inner{max-width:330px}
@@ -1319,6 +1359,8 @@ const STATUS_REMAP = {research:'idea', film:'video'};
 function migrateIdea(x){
   if(!x||typeof x!=='object') return x;
   if(!S[x.status]) x.status = STATUS_REMAP[x.status] || 'idea';
+  if(!Array.isArray(x.refs)) x.refs = [];
+  x.refs = x.refs.filter(r=>r&&typeof r==='object'&&r.id&&(r.kind==='url'?!!r.url:r.kind==='file'));
   // a single id (older saves, or a device still on the old build) becomes a one-item list
   const raw = Array.isArray(x.series) ? x.series
             : (typeof x.series==='string' && x.series ? [x.series] : []);
@@ -1372,6 +1414,100 @@ function save(){
   scheduleSync();
 }
 function touch(i){ i.updated=Date.now(); }
+
+/* ---------- reference images ----------------------------------------------
+   Two kinds of reference, for one hard reason: the whole sync doc is re-PATCHed
+   to the gist ~2.5s after every edit, so base64 images in it would push megabytes
+   per keystroke-pause, and localStorage only has a few MB anyway.
+   - kind 'url'  : just a link. Tiny, syncs everywhere, works on every device.
+   - kind 'file' : an upload, downscaled and kept in IndexedDB on THIS device.
+                   Only the small record syncs, so other devices show a
+                   placeholder instead of pretending the picture is there.
+   Uploads do ride in the JSON backup, which is how to carry them across. */
+const IMG_MAX = 1400, IMG_Q = 0.82;
+let _imgDB=null;
+function imgDB(){
+  if(_imgDB) return _imgDB;
+  _imgDB = new Promise((res,rej)=>{
+    const r=indexedDB.open('yt-images',1);
+    r.onupgradeneeded=()=>{ if(!r.result.objectStoreNames.contains('img')) r.result.createObjectStore('img'); };
+    r.onsuccess=()=>res(r.result);
+    r.onerror=()=>rej(r.error);
+  });
+  return _imgDB;
+}
+function imgTx(mode, fn){
+  return imgDB().then(db=>new Promise((res,rej)=>{
+    const t=db.transaction('img',mode), st=t.objectStore('img');
+    let q; try{ q=fn(st) }catch(e){ return rej(e) }
+    t.oncomplete=()=>res(q && 'result' in q ? q.result : null);
+    t.onerror=()=>rej(t.error); t.onabort=()=>rej(t.error);
+  })).catch(e=>{ console.warn('image store unavailable', e); return null; });
+}
+const imgPut = (id,blob)=>imgTx('readwrite', st=>st.put(blob,id));
+const imgGet = id=>imgTx('readonly', st=>st.get(id));
+const imgDel = id=>imgTx('readwrite', st=>st.delete(id));
+
+// one object URL per reference, reused across the editor's many rebuilds
+const refUrls = new Map();
+const refsOf = i => Array.isArray(i.refs) ? i.refs : [];
+async function refSrc(ref){
+  if(!ref) return null;
+  if(ref.kind==='url') return ref.url||null;
+  if(refUrls.has(ref.id)) return refUrls.get(ref.id);
+  const blob = await imgGet(ref.id);
+  if(!blob) return null;                       // uploaded on another device
+  const u = URL.createObjectURL(blob);
+  refUrls.set(ref.id, u);
+  return u;
+}
+// shrink hard: these are references to glance at, not masters to archive
+function downscale(file){
+  return new Promise((res,rej)=>{
+    const img=new Image(), u=URL.createObjectURL(file);
+    img.onload=()=>{
+      const sc=Math.min(1, IMG_MAX/Math.max(img.width,img.height)||1);
+      const w=Math.max(1,Math.round(img.width*sc)), h=Math.max(1,Math.round(img.height*sc));
+      const c=document.createElement('canvas'); c.width=w; c.height=h;
+      c.getContext('2d').drawImage(img,0,0,w,h);
+      URL.revokeObjectURL(u);
+      c.toBlob(b=>b?res({blob:b,w,h}):rej(new Error('could not encode')),'image/jpeg',IMG_Q);
+    };
+    img.onerror=()=>{ URL.revokeObjectURL(u); rej(new Error('not an image')) };
+    img.src=u;
+  });
+}
+async function addRefFiles(i, files){
+  let added=0;
+  for(const f of [...files]){
+    if(!/^image\//.test(f.type)) continue;
+    try{
+      const {blob,w,h}=await downscale(f);
+      const ref={id:uid(), kind:'file', name:f.name||'image', w, h};
+      await imgPut(ref.id, blob);
+      i.refs=[...refsOf(i), ref]; touch(i);
+      added++;
+    }catch(e){ toast(`Couldn’t read ${f.name||'that file'}`); }
+  }
+  if(added){ save(); buildRefs(i); render(); }
+  return added;
+}
+function addRefUrl(i, url){
+  const u=String(url||'').trim();
+  if(!u) return false;
+  i.refs=[...refsOf(i), {id:uid(), kind:'url', url:siteHref(u)}];
+  touch(i); save(); buildRefs(i); render();
+  return true;
+}
+async function removeRef(i, id){
+  const ref=refsOf(i).find(r=>r.id===id);
+  i.refs=refsOf(i).filter(r=>r.id!==id); touch(i); save();
+  if(ref && ref.kind==='file'){
+    await imgDel(id);
+    const u=refUrls.get(id); if(u){ URL.revokeObjectURL(u); refUrls.delete(id); }
+  }
+  buildRefs(i); render();
+}
 
 /* ---------- to-dos ---------- */
 const openTasks = () => tasks.filter(t=>!t.done);
@@ -1618,6 +1754,7 @@ function cardHTML(i){
       ${lead}
       <span class="format-pill c-${fmt.c}"><svg viewBox="0 0 24 24" fill="currentColor"><path d="${fmt.icon}"/></svg>${fmt.label}</span>
       ${partner?`<span class="brandpill">🤝 ${esc(partner.brand)||'Partnership'}</span>`:''}
+      ${refsOf(i).length?`<span class="dpill">🖼 ${refsOf(i).length}</span>`:''}
       ${tags}
     </div>
     ${(i.date||prog>0)?`<div class="card-foot">${dueHTML(i)}${prog>0?`<span class="prog"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>${prog}%</span>`:''}</div>`:''}
@@ -2353,6 +2490,16 @@ function buildEditor(i){
     </div>
 
     <div class="field">
+      <div class="field-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 16l5-4 4 3 3-3 6 5"/><circle cx="9" cy="9" r="1.4"/></svg>References ${refsOf(i).length?`<span class="muted">${refsOf(i).length}</span>`:''}</div>
+      <div class="refgrid" id="refGrid"></div>
+      <div class="ref-actions">
+        <button class="btn-ghost" id="refPick">＋ Add images</button>
+        <input class="prop" id="refUrl" placeholder="…or paste an image link" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false">
+      </div>
+      <input type="file" id="refFile" accept="image/*" multiple style="display:none">
+    </div>
+
+    <div class="field">
       <div class="field-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="9" cy="10" r="1.2" fill="currentColor"/><circle cx="15" cy="10" r="1.2" fill="currentColor"/><path d="M8.5 15a4.5 4.5 0 007 0"/></svg>Packaging</div>
       <div class="pack-grid">
         <div>
@@ -2412,7 +2559,7 @@ function buildEditor(i){
     el.oninput=()=>{i[id]=el.value;grow(el,70);queueSave(i)};
     grow(el,70);
   });
-  buildTags(i); buildChecklist(i);
+  buildTags(i); buildChecklist(i); buildRefs(i);
 }
 
 function videoPreview(i){
@@ -2921,6 +3068,57 @@ function buildSeriesPicker(i){
   if(add) add.onclick=()=>openSeriesMenu(add, i);
 }
 
+function buildRefs(i){
+  const grid=$('#refGrid'); if(!grid) return;
+  const list=refsOf(i);
+  grid.innerHTML = list.map(r=>
+    `<div class="refcell" data-ref="${r.id}">
+       <div class="refimg" data-img="${r.id}"></div>
+       <button class="refx" data-rmref="${r.id}" title="Remove"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+     </div>`).join('')
+    + `<button class="refdrop" id="refDrop">Drop images<br>or click</button>`;
+
+  list.forEach(async r=>{
+    const box=grid.querySelector(`[data-img="${r.id}"]`); if(!box) return;
+    const src=await refSrc(r);
+    if(src){
+      box.innerHTML=`<img src="${esc(src)}" alt="" loading="lazy">`;
+      box.parentElement.onclick=e=>{ if(!e.target.closest('[data-rmref]')) openLightbox(src); };
+    }else{
+      // uploaded on another device — say so rather than showing a broken frame
+      box.classList.add('missing');
+      box.innerHTML=`<span>on another device</span>`;
+      box.parentElement.title=`${r.name||'Image'} — uploaded on a different device`;
+    }
+  });
+  grid.querySelectorAll('[data-rmref]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); removeRef(i, b.dataset.rmref); });
+
+  const pick=$('#refPick'), file=$('#refFile'), urlIn=$('#refUrl'), drop=$('#refDrop');
+  pick.onclick=()=>file.click();
+  drop.onclick=()=>file.click();
+  file.onchange=async e=>{ const f=e.target.files; e.target.value=''; if(f&&f.length) await addRefFiles(i,f); };
+  urlIn.onkeydown=e=>{ if(e.key==='Enter'&&urlIn.value.trim()){ e.preventDefault(); addRefUrl(i, urlIn.value); } };
+  grid.addEventListener('dragover',e=>{ e.preventDefault(); grid.classList.add('over') });
+  grid.addEventListener('dragleave',e=>{ if(!grid.contains(e.relatedTarget)) grid.classList.remove('over') });
+  grid.addEventListener('drop',async e=>{
+    e.preventDefault(); e.stopPropagation(); grid.classList.remove('over');
+    const dt=e.dataTransfer;
+    if(dt.files && dt.files.length) return void await addRefFiles(i, dt.files);
+    const t=dt.getData('text/uri-list')||dt.getData('text/plain');
+    if(t) addRefUrl(i, t);
+  });
+}
+
+function openLightbox(src){
+  const w=document.createElement('div'); w.className='lightbox';
+  w.innerHTML=`<img src="${esc(src)}" alt="">`;
+  const key=e=>{ if(e.key==='Escape'){ close(); } };
+  function close(){ w.remove(); document.removeEventListener('keydown',key,true); }
+  w.onclick=close;
+  document.addEventListener('keydown',key,true);
+  document.body.appendChild(w);
+}
+
 function buildTags(i){
   const wrap=$('#tagsEdit'); wrap.innerHTML='';
   (i.tags||[]).forEach((t,idx)=>{
@@ -3198,7 +3396,14 @@ $('#delBtn').onclick=()=>{
     if(confirm('Delete this partnership?')){dealsDeleted[openId]=Date.now();deals=deals.filter(d=>d.id!==openId);save();closeEditor();render();toast('Partnership deleted')}
     return;
   }
-  if(confirm('Delete this idea?')){deletedMap[openId]=Date.now();ideas=ideas.filter(i=>i.id!==openId);save();closeEditor();render();toast('Idea deleted')}
+  if(confirm('Delete this idea?')){
+    const gone=ideas.find(i=>i.id===openId);
+    refsOf(gone||{}).filter(r=>r.kind==='file').forEach(r=>{
+      imgDel(r.id);
+      const u=refUrls.get(r.id); if(u){ URL.revokeObjectURL(u); refUrls.delete(r.id); }
+    });
+    deletedMap[openId]=Date.now();ideas=ideas.filter(i=>i.id!==openId);save();closeEditor();render();toast('Idea deleted');
+  }
 };
 $('#dupBtn').onclick=()=>{
   if(openKind==='task'){
@@ -3448,11 +3653,25 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden)focusSync(
 if(SY.token&&SY.gist){ setSyncUI('syncing'); syncNow(); } else setSyncUI('off');
 
 // JSON backup / restore
-$('#backupBtn').onclick=()=>{
-  const blob=new Blob([JSON.stringify({v:4,exported:Date.now(),ideas,deals,series:SERIES,tasks},null,2)],{type:'application/json'});
+const blobToDataUrl = b => new Promise(res=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=()=>res(null); r.readAsDataURL(b) });
+async function dataUrlToBlob(u){ try{ return await (await fetch(u)).blob() }catch(e){ return null } }
+$('#backupBtn').onclick=async()=>{
+  // uploads live in IndexedDB and never sync, so the backup is the way to move
+  // them between devices — inline them here even though it makes the file big
+  const images={};
+  for(const i of ideas){
+    for(const r of refsOf(i)){
+      if(r.kind!=='file') continue;
+      const b=await imgGet(r.id);
+      if(b){ const u=await blobToDataUrl(b); if(u) images[r.id]=u; }
+    }
+  }
+  const doc={v:5,exported:Date.now(),ideas,deals,series:SERIES,tasks,images};
+  const blob=new Blob([JSON.stringify(doc,null,2)],{type:'application/json'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);
   a.download=`youtube-ideas-backup-${dkey(new Date())}.json`;a.click();
-  toast('Backup downloaded ✓');
+  const n=Object.keys(images).length;
+  toast(`Backup downloaded ✓${n?` · ${n} image${n>1?'s':''} included`:''}`);
 };
 $('#importBtn').onclick=()=>$('#importFile').click();
 $('#importFile').onchange=e=>{
@@ -3472,6 +3691,7 @@ $('#importFile').onchange=e=>{
         tags:Array.isArray(x.tags)?x.tags.map(String):[],
         notes:String(x.notes||''), date:String(x.date||''), video:String(x.video||''),
         packTitles:String(x.packTitles||''), packThumb:String(x.packThumb||''),
+        refs:Array.isArray(x.refs)?x.refs:[],
         checklist:Array.isArray(x.checklist)&&x.checklist.length?x.checklist.map(c=>({t:String(c.t||''),done:!!c.done})):DEFAULT_CHECK.map(t=>({t,done:false})),
         created:Number(x.created)||Date.now(),
         updated:Number(x.updated)||Date.now(),
@@ -3513,6 +3733,15 @@ $('#importFile').onchange=e=>{
       }
       clean.forEach(migrateIdea); ensureOrds(clean);
       ideas=clean; deals=cleanDeals; save(); render(); toast(`Imported ${what} ✓`);
+      // restore any inlined uploads into this device's image store
+      const imgs = (parsed && parsed.images && typeof parsed.images==='object') ? parsed.images : {};
+      const ids = Object.keys(imgs);
+      if(ids.length) (async()=>{
+        let ok=0;
+        for(const id of ids){ const b=await dataUrlToBlob(imgs[id]); if(b){ await imgPut(id,b); ok++ } }
+        refUrls.clear(); render();
+        toast(`${ok} reference image${ok===1?'':'s'} restored`);
+      })();
     }catch(err){ toast("Couldn't read that file — is it an Idea Studio backup?"); }
   };
   reader.readAsText(f);
